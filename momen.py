@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-def awesome_oscillator(data, window1, window2):
+def awesome_oscillator(data, window1=5, window2=34):
     high = data['High']
     low = data['Low']
     median_price = (high + low) / 2
@@ -73,15 +73,14 @@ def true_strength_index(data, long_period=25, short_period=13):
     delta = close.diff()
 
     # Tính EMA cho các độ biến đổi
-    ema1 = delta.ewm(span=short_period).mean()
-    ema2 = ema1.ewm(span=short_period).mean()
+    ema1 = delta.ewm(span=long_period).mean()
+    double_smoothed_pc  = ema1.ewm(span=short_period).mean()
     
-    # Tính EMA cho độ biến đổi bình phương
-    ema1_squared = delta ** 2
-    ema1_squared_2 = ema1_squared.ewm(span=short_period).mean()
+    ema2 = abs(delta).ewm(span=long_period).mean()
+    double_smoothed_abs_pc  = ema2.ewm(span=short_period).mean()
 
     # TSI
-    tsi = 100 * (ema2 / ema1_squared_2.ewm(span=long_period).mean())
+    tsi = 100 * (double_smoothed_pc / double_smoothed_abs_pc)
     
     return tsi.to_numpy()
 
@@ -90,21 +89,15 @@ def ultimate_oscillator(data, short_period=7, medium_period=14, long_period=28):
     low = pd.Series(data['Low'])
     close = pd.Series(data['Close'])
 
-    bp = close - low
-    tr = high - low
+    bp = close - np.minimum(low, close.shift(1))  # Buying Pressure
+    tr = np.maximum(high, close.shift(1)) - np.minimum(low, close.shift(1))  # True Range
+    
+    avg_short = bp.rolling(short_period).sum() / tr.rolling(short_period).sum()
+    avg_medium = bp.rolling(medium_period).sum() / tr.rolling(medium_period).sum()
+    avg_long = bp.rolling(long_period).sum() / tr.rolling(long_period).sum()
 
-    avg_bp_short = bp.rolling(window=short_period).mean()
-    avg_tr_short = tr.rolling(window=short_period).mean()
-    
-    avg_bp_medium = bp.rolling(window=medium_period).mean()
-    avg_tr_medium = tr.rolling(window=medium_period).mean()
-    
-    avg_bp_long = bp.rolling(window=long_period).mean()
-    avg_tr_long = tr.rolling(window=long_period).mean()
-
-    ultimate_oscillator = (4 * avg_bp_short / avg_tr_short + 2 * avg_bp_medium / avg_tr_medium + avg_bp_long / avg_tr_long) / 7 * 100
-    
-    return ultimate_oscillator.to_numpy()
+    ultimate_osc = (4 * avg_short + 2 * avg_medium + avg_long) / (4 + 2 + 1) * 100
+    return ultimate_osc.to_numpy()
 
 def williams_r(data, period=14):
     high = pd.Series(data['High'])
@@ -124,8 +117,8 @@ def stochastic_oscillator_signal(data, k_period=14, d_period=3):
     return signal
 
 def stochastic_rsi(data, rsi_period=14, stoch_period=14):
-    close = pd.Series(data['Close'])
-    rsi = relative_strength_index(data, period=rsi_period)  # Sử dụng hàm RSI đã có
+
+    rsi = relative_strength_index(data, period=rsi_period)  # Sử dụng    close = pd.Series(data['Close']) hàm RSI đã có
 
     # Tính toán %K cho Stochastic RSI
     rsi_high = pd.Series(rsi).rolling(window=stoch_period).max()
