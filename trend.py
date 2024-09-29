@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 
-# 1. Average Directional Index (ADX)
+# 1. Average Directional Index (ADX), +DI, -DI
 def adx(data, window=14):
     high = pd.Series(data['High'])
     low = pd.Series(data['Low'])
@@ -20,7 +20,9 @@ def adx(data, window=14):
     minus_di = 100 * (pd.Series(minus_dm).rolling(window=window).mean() / atr)
     
     adx = 100 * (abs(plus_di - minus_di) / (plus_di + minus_di)).rolling(window=window).mean()
-    return adx.values
+    
+    # Trả về cả ba chỉ số ADX, +DI, -DI
+    return adx.values, plus_di.values, minus_di.values
 
 # 2. Aroon Indicator
 def aroon(data, window=25):
