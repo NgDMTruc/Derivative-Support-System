@@ -1,27 +1,30 @@
 import pandas as pd
 import numpy as np
 
-# 1. Average Directional Index (ADX), +DI, -DI
+# 1. Average Directional Index (ADX)
 def adx(data, window=14):
     high = pd.Series(data['High'])
     low = pd.Series(data['Low'])
     close = pd.Series(data['Close'])
-    
+
+    # Tính toán UpMove và DownMove
     up_move = high.diff()
     down_move = low.diff().abs()
-    
+
     plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
     minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
-    
+
+    # Tính toán True Range (TR)
     tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
     atr = tr.rolling(window=window).mean()
-    
+
+    # Tính toán Directional Indicator
     plus_di = 100 * (pd.Series(plus_dm).rolling(window=window).mean() / atr)
     minus_di = 100 * (pd.Series(minus_dm).rolling(window=window).mean() / atr)
-    
+
+    # Tính toán ADX
     adx = 100 * (abs(plus_di - minus_di) / (plus_di + minus_di)).rolling(window=window).mean()
-    
-    # Trả về cả ba chỉ số ADX, +DI, -DI
+
     return adx.values, plus_di.values, minus_di.values
 
 # 2. Aroon Indicator
