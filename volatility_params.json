@@ -1,0 +1,130 @@
+{
+    "Average True Range (ATR)": {
+        "min": {
+            "window": [
+                7,
+                14
+            ]
+        },
+        "hour": {
+            "window": [
+                14,
+                20
+            ]
+        },
+        "day": {
+            "window": [
+                14,
+                20
+            ]
+        }
+    },
+    "Bollinger Bands": {
+        "min": {
+            "window": [
+                14,
+                20
+            ],
+            "multiplier": [
+                2,
+                2.5,
+                3
+            ]
+        },
+        "hour": {
+            "window": [
+                20
+            ],
+            "multiplier": [
+                2,
+                2.5
+            ]
+        },
+        "day": {
+            "window": [
+                20
+            ],
+            "multiplier": [
+                2,
+                2.5,
+                3
+            ]
+        }
+    },
+    "Donchian Channel": {
+        "min": {
+            "window": [
+                10,
+                20
+            ]
+        },
+        "hour": {
+            "window": [
+                20
+            ]
+        },
+        "day": {
+            "window": [
+                20,
+                50
+            ]
+        }
+    },
+    "Keltner Channel": {
+        "min": {
+            "window": [
+                14,
+                20
+            ],
+            "multiplier": [
+                2
+            ],
+            "atr_window": [
+                10,
+                20
+            ]
+        },
+        "hour": {
+            "window": [
+                20
+            ],
+            "multiplier": [
+                2
+            ],
+            "atr_window": [
+                14
+            ]
+        },
+        "day": {
+            "window": [
+                20
+            ],
+            "multiplier": [
+                2
+            ],
+            "atr_window": [
+                14,
+                20
+            ]
+        }
+    },
+    "Ulcer Index (UI)": {
+        "min": {
+            "window": [
+                10,
+                14
+            ]
+        },
+        "hour": {
+            "window": [
+                14
+            ]
+        },
+        "day": {
+            "window": [
+                14,
+                20
+            ]
+        }
+    }
+}

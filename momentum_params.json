@@ -1,0 +1,409 @@
+{
+    "ADX": {
+        "min": {
+            "window": [
+                7,
+                10,
+                14
+            ],
+            "adx_threshold": [
+                25,
+                30,
+                35,
+                40
+            ]
+        },
+        "hour": {
+            "window": [
+                10,
+                14,
+                20
+            ],
+            "adx_threshold": [
+                25,
+                30,
+                35
+            ]
+        },
+        "day": {
+            "window": [
+                14,
+                20,
+                30
+            ],
+            "adx_threshold": [
+                20,
+                25,
+                30,
+                40
+            ]
+        }
+    },
+    "Aroon Indicator": {
+        "min": {
+            "window": [
+                14,
+                20,
+                25
+            ],
+            "aroon_threshold": [
+                70
+            ]
+        },
+        "hour": {
+            "window": [
+                25
+            ],
+            "aroon_threshold": [
+                70
+            ]
+        },
+        "day": {
+            "window": [
+                25
+            ],
+            "aroon_threshold": [
+                70
+            ]
+        }
+    },
+    "CCI": {
+        "min": {
+            "window": [
+                10,
+                14
+            ],
+            "constant": [
+                0.015
+            ]
+        },
+        "hour": {
+            "window": [
+                20
+            ],
+            "constant": [
+                0.015
+            ]
+        },
+        "day": {
+            "window": [
+                20,
+                30,
+                40
+            ],
+            "constant": [
+                0.015
+            ]
+        }
+    },
+    "DPO": {
+        "min": {
+            "window": [
+                10,
+                14
+            ]
+        },
+        "hour": {
+            "window": [
+                20
+            ]
+        },
+        "day": {
+            "window": [
+                30
+            ]
+        }
+    },
+    "EMA": {
+        "min": {
+            "window": [
+                9,
+                12
+            ]
+        },
+        "hour": {
+            "window": [
+                12
+            ]
+        },
+        "day": {
+            "window": [
+                26
+            ]
+        }
+    },
+    "SMA": {
+        "min": {
+            "window": [
+                10,
+                14
+            ]
+        },
+        "hour": {
+            "window": [
+                20
+            ]
+        },
+        "day": {
+            "window": [
+                50
+            ]
+        }
+    },
+    "PSAR": {
+        "min": {
+            "step": [
+                0.02
+            ],
+            "max_step": [
+                0.1
+            ]
+        },
+        "hour": {
+            "step": [
+                0.02
+            ],
+            "max_step": [
+                0.2
+            ]
+        },
+        "day": {
+            "step": [
+                0.02
+            ],
+            "max_step": [
+                0.2
+            ]
+        }
+    },
+    "TRIX": {
+        "min": {
+            "window": [
+                10,
+                15
+            ]
+        },
+        "hour": {
+            "window": [
+                15
+            ]
+        },
+        "day": {
+            "window": [
+                20
+            ]
+        }
+    },
+    "Ichimoku": {
+        "min": {
+            "window1": [
+                5
+            ],
+            "window2": [
+                13
+            ],
+            "window3": [
+                26
+            ]
+        },
+        "hour": {
+            "window1": [
+                9
+            ],
+            "window2": [
+                26
+            ],
+            "window3": [
+                52
+            ]
+        },
+        "day": {
+            "window1": [
+                9
+            ],
+            "window2": [
+                26
+            ],
+            "window3": [
+                52
+            ]
+        }
+    },
+    "Vortex Indicator": {
+        "min": {
+            "window": [
+                10,
+                14
+            ]
+        },
+        "hour": {
+            "window": [
+                14
+            ]
+        },
+        "day": {
+            "window": [
+                20
+            ]
+        }
+    },
+    "KST": {
+        "min": {
+            "roc1": [
+                10
+            ],
+            "roc2": [
+                15
+            ],
+            "roc3": [
+                20
+            ],
+            "roc4": [
+                30
+            ],
+            "sma1": [
+                10
+            ],
+            "sma2": [
+                10
+            ],
+            "sma3": [
+                10
+            ],
+            "sma4": [
+                15
+            ]
+        },
+        "hour": {
+            "roc1": [
+                10
+            ],
+            "roc2": [
+                15
+            ],
+            "roc3": [
+                20
+            ],
+            "roc4": [
+                30
+            ],
+            "sma1": [
+                10
+            ],
+            "sma2": [
+                10
+            ],
+            "sma3": [
+                10
+            ],
+            "sma4": [
+                15
+            ]
+        },
+        "day": {
+            "roc1": [
+                15
+            ],
+            "roc2": [
+                20
+            ],
+            "roc3": [
+                30
+            ],
+            "roc4": [
+                40
+            ],
+            "sma1": [
+                10
+            ],
+            "sma2": [
+                15
+            ],
+            "sma3": [
+                15
+            ],
+            "sma4": [
+                20
+            ]
+        }
+    },
+    "Mass Index": {
+        "min": {
+            "window_fast": [
+                9
+            ],
+            "window_slow": [
+                25
+            ]
+        },
+        "hour": {
+            "window_fast": [
+                9
+            ],
+            "window_slow": [
+                25
+            ]
+        },
+        "day": {
+            "window_fast": [
+                9
+            ],
+            "window_slow": [
+                25
+            ]
+        }
+    },
+    "STC": {
+        "min": {
+            "ema_fast": [
+                23
+            ],
+            "ema_slow": [
+                50
+            ],
+            "cycle": [
+                10
+            ]
+        },
+        "hour": {
+            "ema_fast": [
+                23
+            ],
+            "ema_slow": [
+                50
+            ],
+            "cycle": [
+                10
+            ]
+        },
+        "day": {
+            "ema_fast": [
+                23
+            ],
+            "ema_slow": [
+                50
+            ],
+            "cycle": [
+                10
+            ]
+        }
+    },
+    "WMA": {
+        "min": {
+            "window": [
+                9,
+                10
+            ]
+        },
+        "hour": {
+            "window": [
+                10
+            ]
+        },
+        "day": {
+            "window": [
+                15
+            ]
+        }
+    }
+}

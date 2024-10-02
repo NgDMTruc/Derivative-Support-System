@@ -1,0 +1,121 @@
+{
+    "Accumulation/Distribution Index (ADI)": {
+        "min": {},
+        "hour": {},
+        "day": {}
+    },
+    "Chaikin Money Flow (CMF)": {
+        "min": {
+            "window": [
+                10,
+                14,
+                20
+            ]
+        },
+        "hour": {
+            "window": [
+                14,
+                20,
+                21
+            ]
+        },
+        "day": {
+            "window": [
+                20,
+                21
+            ]
+        }
+    },
+    "Ease of Movement (EoM)": {
+        "min": {
+            "window": [
+                10,
+                14
+            ]
+        },
+        "hour": {
+            "window": [
+                14,
+                20
+            ]
+        },
+        "day": {
+            "window": [
+                14,
+                20
+            ]
+        }
+    },
+    "Force Index (FI)": {
+        "min": {
+            "window": [
+                10,
+                13
+            ]
+        },
+        "hour": {
+            "window": [
+                13,
+                21
+            ]
+        },
+        "day": {
+            "window": [
+                21
+            ]
+        }
+    },
+    "Money Flow Index (MFI)": {
+        "min": {
+            "window": [
+                10,
+                14
+            ]
+        },
+        "hour": {
+            "window": [
+                14
+            ]
+        },
+        "day": {
+            "window": [
+                14,
+                20
+            ]
+        }
+    },
+    "Negative Volume Index (NVI)": {
+        "min": {},
+        "hour": {},
+        "day": {}
+    },
+    "On-Balance Volume (OBV)": {
+        "min": {},
+        "hour": {},
+        "day": {}
+    },
+    "Volume-Price Trend (VPT)": {
+        "min": {},
+        "hour": {},
+        "day": {}
+    },
+    "Volume Weighted Average Price (VWAP)": {
+        "min": {
+            "window": [
+                14,
+                21
+            ]
+        },
+        "hour": {
+            "window": [
+                21
+            ]
+        },
+        "day": {
+            "window": [
+                21,
+                30
+            ]
+        }
+    }
+}

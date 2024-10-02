@@ -7,34 +7,33 @@ def adx(data, window=14):
     low = pd.Series(data['Low'])
     close = pd.Series(data['Close'])
 
-    # Tính toán UpMove và DownMove
+    # Calculate UpMove and DownMove
     up_move = high.diff()
     down_move = low.diff().abs()
 
     plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
     minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
 
-    # Tính toán True Range (TR)
+    # Calculate True Range (TR)
     tr = pd.concat([high - low, (high - close.shift()).abs(), (low - close.shift()).abs()], axis=1).max(axis=1)
     atr = tr.rolling(window=window).mean()
 
-    # Tính toán Directional Indicator
+    # Calculate Directional Indicators
     plus_di = 100 * (pd.Series(plus_dm).rolling(window=window).mean() / atr)
     minus_di = 100 * (pd.Series(minus_dm).rolling(window=window).mean() / atr)
 
-    # Tính toán ADX
+    # Calculate ADX
     adx = 100 * (abs(plus_di - minus_di) / (plus_di + minus_di)).rolling(window=window).mean()
 
-    return adx.values, plus_di.values, minus_di.values
+    return adx.values
 
 # 2. Aroon Indicator
 def aroon(data, window=25):
     close = pd.Series(data['Close'])
     
-    aroon_up = 100 * (window - close.rolling(window).apply(lambda x: x.argmax())) / window
-    aroon_down = 100 * (window - close.rolling(window).apply(lambda x: x.argmin())) / window
-    aroon_indicator = aroon_up - aroon_down
-    return aroon_indicator.values
+    aroon_up = 100 * (window - close.rolling(window).apply(lambda x: x.argmax(), raw=True)) / window
+    aroon_down = 100 * (window - close.rolling(window).apply(lambda x: x.argmin(), raw=True)) / window
+    return aroon_up.values, aroon_down.values
 
 # 3. Commodity Channel Index (CCI)
 def cci(data, window=20, constant=0.015):
