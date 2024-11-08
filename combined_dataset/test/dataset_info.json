@@ -1,0 +1,28 @@
+{
+  "citation": "",
+  "description": "",
+  "features": {
+    "Instruction": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "Context": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "Text": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "Choose": {
+      "dtype": "string",
+      "_type": "Value"
+    },
+    "Reject": {
+      "dtype": "string",
+      "_type": "Value"
+    }
+  },
+  "homepage": "",
+  "license": ""
+}
