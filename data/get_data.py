@@ -36,14 +36,18 @@ def get_vn30f(symbol, resolution, start_time=None, now_time=None):
 
     return vn30fm
 
-start_time = 0
-now_time = '2024-08-31'
-symbol = 'VN30F1M'
-resolution= ['3','1H','1D']
-df_min = get_vn30f(symbol='VN30F1M', resolution=resolution[0], start_time=None, now_time=now_time)
-df_hour = get_vn30f(symbol='VN30F1M', resolution=resolution[1], start_time=None, now_time=now_time)
-df_day = get_vn30f(symbol='VN30F1M', resolution=resolution[2], start_time=None, now_time=now_time)
+def main():
+  start_time = 0
+  now_time = '2024-08-31'
+  symbol = 'VN30F1M'
+  resolution= ['3','1H','1D']
+  df_min = get_vn30f(symbol='VN30F1M', resolution=resolution[0], start_time=None, now_time=now_time)
+  df_hour = get_vn30f(symbol='VN30F1M', resolution=resolution[1], start_time=None, now_time=now_time)
+  df_day = get_vn30f(symbol='VN30F1M', resolution=resolution[2], start_time=None, now_time=now_time)
 
-df_min.to_csv('vn30f1m_3min.csv', index=False)
-df_hour.to_csv('vn30f1m_1hour.csv', index=False)
-df_day.to_csv('vn30f1m_1day.csv', index=False)
+  df_min.to_csv('vn30f1m_3min.csv', index=False)
+  df_hour.to_csv('vn30f1m_1hour.csv', index=False)
+  df_day.to_csv('vn30f1m_1day.csv', index=False)
+
+if __name__ == "__main__":
+   main()
