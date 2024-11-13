@@ -1,7 +1,6 @@
 import sys
 import os
-sys.path.append(os.path.abspath('../')) # Thêm đường dẫn của thư mục Capstone vào sys.path
-
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) # Thêm đường dẫn thư mục gốc (Capstone) vào sys.path
 import pandas as pd
 import numpy as np
 import requests
@@ -11,10 +10,10 @@ from datetime import datetime, timedelta, timezone
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
-from Capstone.indicators.volatility import *  
-from Capstone.indicators.volume import *      
-from Capstone.indicators.other import *      
-from Capstone.indicators.trend import *      
+from indicators.volatility import *  
+from indicators.volume import *      
+from indicators.other import *      
+from indicators.trend import *      
 
 def get_vn30f(symbol, resolution, start_time=None, now_time=None):
     if start_time:

@@ -6,10 +6,10 @@ import numpy as np
 import xgboost  as xgb
 import optuna
 import sys
-sys.path.append(os.path.abspath('../')) # Thêm đường dẫn của thư mục Capstone vào sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) # Thêm đường dẫn thư mục gốc (Capstone) vào sys.path
+from utils.backtest import run_model_backtest
+from data.data_utils import split_optuna_data, scale_data, split_data, train_test_split
 from xgboost import callback
-from Capstone.utils.backtest import run_model_backtest
-from Capstone.data.data_utils import split_optuna_data, scale_data, split_data, train_test_split
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_samples, silhouette_score
 
@@ -284,11 +284,7 @@ def clusterKMeansTop(corr0: pd.DataFrame, maxNumClusters=None, n_init=10):
             return corrNew, clstrsNew, silhNew
             #return corr1, clstrs, silh, stat
 
-def process_clusters_and_save(clstrsNew, top_trials, new_df_no_close_col, data, cwd, drop_list, output_folder="output_clusters", saving=True):
-    # Ensure the output folder exists
-    if not os.path.exists(output_folder):
-        os.makedirs(output_folder)
-
+def process_clusters_and_save(clstrsNew, top_trials, new_df_no_close_col, data, cwd, drop_list, saving=True):
     cluster_lists = []
     top_10_features_per_cluster = []
     selected_columns_cluster = []
@@ -323,7 +319,7 @@ def process_clusters_and_save(clstrsNew, top_trials, new_df_no_close_col, data, 
         selected_columns = new_df_no_close_col.iloc[:, item]
         selected_columns_cluster.append(selected_columns)
         # Add the required columns to the existing selected columns for each cluster
-        selected_columns_with_info = pd.concat([data[[ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0']], selected_columns], axis=1)
+        selected_columns_with_info = pd.concat([data[drop_list], selected_columns], axis=1)
         selected_columns_cluster_with_info.append(selected_columns_with_info)
         
     if saving == True:
