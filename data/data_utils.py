@@ -1,12 +1,15 @@
 import sys
 import os
-
-# Thêm đường dẫn của thư mục Capstone vào sys.path
-sys.path.append(os.path.abspath('../'))
+sys.path.append(os.path.abspath('../')) # Thêm đường dẫn của thư mục Capstone vào sys.path
 
 import pandas as pd
+import numpy as np
 import requests
+import matplotlib
+import matplotlib.pyplot as plt
 from datetime import datetime, timedelta, timezone
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 from Capstone.indicators.volatility import *  
 from Capstone.indicators.volume import *      
@@ -74,7 +77,6 @@ def process_data(data):
     data_model = data_model[data_model['time'] >= pd.to_datetime('09:00:00').time()]
 
     return data_model
-
 
 def drop_high_corr_columns(df, threshold=0.9, rolling_window=1):
   ''' Xóa các cột có correlation cao với nhau, giữ cột đầu tiên'''
@@ -153,11 +155,9 @@ def data_backtest(data):
     return new_data
 
 def label_quarter(df):
-
     # Get the datetime index column
     df = df.copy()
     df['date'] = df.index
-
 
     # Calculate the 21st day of the first month in each quarter
     def get_quarter_label(date):
@@ -189,12 +189,10 @@ def label_quarter(df):
             else:
                 return f"{date.year}Q3"
 
-
     df['quarter_label'] = df['date'].apply(get_quarter_label)
 
     return df['quarter_label']
 
-# Additional function to apply exponential decay
 def apply_exponential_decay(df, lambda_value):
     # Ensure 'date' is in datetime format
     df = df.copy()
@@ -234,7 +232,7 @@ def add_finance_features(data, financial_statements):
     # Step 4: Fill in NaN values ​​equal to the previous quarter's value
     merged_df = merged_df.fillna(method='ffill')
 
-    # Step 5: Apple exponential decay
+    # Step 5: Apply exponential decay
     merged_df = apply_exponential_decay(merged_df, lambda_value=0.01)  # Daily decay rate
     
     columns_to_drop = ['Close', 'quarter_label']
@@ -243,3 +241,110 @@ def add_finance_features(data, financial_statements):
     data_combined = pd.concat([data_backtest(data), data_clean], axis=1)
 
     return data_combined
+
+def scale_data(data,fit):
+    index = data.index
+    scaler = StandardScaler()
+#     data = np.where(np.isinf(data), np.nan, data
+    data.replace([np.inf, -np.inf], 0, inplace=True)
+    data.fillna(0, inplace=True)
+    fit.replace([np.inf, -np.inf], 0, inplace=True)
+    fit.fillna(0, inplace=True)
+    data = pd.DataFrame(data,index=index)
+    data = data.fillna(0)
+    scaler.fit(fit)
+    data=pd.DataFrame(scaler.transform(data), index=data.index, columns=data.columns)
+
+    return data
+
+def split_data(data):
+    """
+    Hàm này chia dữ liệu thành 2 phần: tập huấn luyện và tập hold out.
+
+    Args:
+    data (pandas.DataFrame): DataFrame chứa dữ liệu cần chia.
+
+    Returns:
+    pandas.DataFrame: DataFrame chứa dữ liệu tập huấn luyện.
+    pandas.DataFrame: DataFrame chứa dữ liệu tập giữ lại.
+    """
+    # Chia dữ liệu thành 3 phần
+    new_part = np.array_split(data, 3)
+
+    # Access each part individually
+    hold_out = new_part[2]
+    train_data = pd.concat([new_part[0], new_part[1]], axis=0)
+
+    return train_data, hold_out
+
+def split_optuna_data(data):
+    """
+    Hàm này chia dữ liệu thành các tập train và test để sử dụng trong quá trình tối ưu hóa bằng Optuna.
+​
+    Args:
+    data (pandas.DataFrame): DataFrame chứa dữ liệu cần chia.
+​
+    Returns:
+    pandas.DataFrame: DataFrame chứa dữ liệu train (đã được chuẩn hóa).
+    pandas.DataFrame: DataFrame chứa dữ liệu test (đã được chuẩn hóa).
+    pandas.Series: Series chứa nhãn tương ứng với dữ liệu train.
+    pandas.Series: Series chứa nhãn tương ứng với dữ liệu test.
+    """
+
+    # Chia dữ liệu thành tập train và tập hold out
+    train_data, _ = split_data(data)
+
+    # Loại bỏ các cột không cần thiết
+    optuna_data = train_data.drop(['Open','High','Low','Close','Volume', 'Return','Unnamed: 0'], axis=1)
+    rename_dict = {col: i for i, col in enumerate(optuna_data.columns)}
+    optuna_data=optuna_data.rename(columns=rename_dict)
+
+    X_train, X_valid, y_train, y_valid = train_test_split(optuna_data, train_data['Return'], test_size=0.5, shuffle=False)
+
+    train_data.set_index('Unnamed: 0', inplace=True)
+    train_data=train_data.rename(columns=rename_dict)
+    train_data.index.name = 'datetime'
+    train_data.index = pd.to_datetime(train_data.index)
+
+    train_data_X_train = train_data.iloc[X_train.index]
+    train_data_X_valid = train_data.iloc[X_valid.index]
+    train_data_y_train = train_data.iloc[y_train.index, -1]
+    train_data_y_valid = train_data.iloc[y_valid.index, -1]
+
+    X_train=scale_data(X_train,X_train)
+    X_valid=scale_data(X_valid,X_train)
+
+    temp = train_data_X_train.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
+    temp=scale_data(temp,X_train)
+    train_data_X_train= pd.concat([train_data_X_train[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
+
+    temp = train_data_X_valid.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
+    temp=scale_data(temp,X_train)
+    train_data_X_valid= pd.concat([train_data_X_valid[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
+
+
+
+    return X_train, X_valid, y_train, y_valid, train_data,train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid
+
+def backtest_data(data):
+    train_data = data.copy()
+
+    # Chuyển đổi cột 'Date' và 'time' thành một cột datetime
+    train_data['datetime'] = pd.to_datetime(train_data['Date'] + ' ' + train_data['time'])
+
+    # Đặt cột 'datetime' làm chỉ số
+    train_data.set_index('datetime', inplace=True)
+
+    # Xóa cột 'Date' và 'time' nếu không cần thiết nữa
+    train_data.drop(columns=['Date', 'time'], inplace=True)
+
+    return train_data
+
+def draw_corr(corr):
+    #Draw ground truth
+    matplotlib.pyplot.matshow(corr) #invert y-axis to get origo at lower left corner
+    matplotlib.pyplot.gca().xaxis.tick_bottom()
+    matplotlib.pyplot.gca().invert_yaxis()
+    matplotlib.pyplot.colorbar()
+    matplotlib.pyplot.show()
+
