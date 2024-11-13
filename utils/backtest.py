@@ -170,6 +170,23 @@ class CustomBacktest(Backtest):
             stats._trades.at[idx, 'PnL_after_fees'] = pnl_after_fees
 
         # Thêm cột 'Fees', 'Margin Required', và 'Current Equity' vào _trades và tổng phí đã áp dụng
+        if len(fees_for_trades) < len(stats._trades.index):
+            # Extend fees_for_trades with zeros
+            fees_for_trades += [0] * (len(stats._trades.index) - len(fees_for_trades))
+        elif len(fees_for_trades) > len(stats._trades.index):
+            # Trim fees_for_trades if it's too long
+            fees_for_trades = fees_for_trades[:len(stats._trades.index)]
+        
+        # Repeat the same for margin_required_list and current_equity_list
+        if len(margin_required_list) < len(stats._trades.index):
+            margin_required_list += [0] * (len(stats._trades.index) - len(margin_required_list))
+        elif len(margin_required_list) > len(stats._trades.index):
+            margin_required_list = margin_required_list[:len(stats._trades.index)]
+        
+        if len(current_equity_list) < len(stats._trades.index):
+            current_equity_list += [current_equity] * (len(stats._trades.index) - len(current_equity_list))
+        elif len(current_equity_list) > len(stats._trades.index):
+            current_equity_list = current_equity_list[:len(stats._trades.index)]
         stats._trades['Fees'] = fees_for_trades
         stats._trades['Margin Required'] = margin_required_list
         stats._trades['Current Equity'] = current_equity_list
