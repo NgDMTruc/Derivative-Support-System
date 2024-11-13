@@ -133,7 +133,7 @@ def generate_features(data, params_dict, dataset_name):
 
     return features
 
-def add_features(data, params, type, rolling_window=1):
+def add_features(data, params, type, drop=True, rolling_window=1):
     ''' Thêm feature vào dữ liệu và xử lý'''
     data = process_data(data)
     for param in params:
@@ -141,8 +141,8 @@ def add_features(data, params, type, rolling_window=1):
         train_features = pd.concat([data,feature], axis=1)
     train_features['Return'] = (train_features['Close'].shift(-rolling_window) -  train_features['Close'])/train_features['Close']
     train_features =  train_features.fillna(0)
-
-    train_features=drop_high_corr_columns(train_features)
+    if drop == True:
+        train_features=drop_high_corr_columns(train_features)
 
     return train_features
 

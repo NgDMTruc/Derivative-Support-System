@@ -46,7 +46,6 @@ def calculate_sharpe_ratio(pnl):
     return sharpe
 
 def sharpe_for_vn30f(y_pred, y_price, trade_threshold, fee_perc, periods):
-
     # Predict position base on change in future
     pos = [choose_position(roi, trade_threshold) for roi in y_pred]
     pos = np.array(pos)
@@ -65,7 +64,6 @@ def sharpe_for_vn30f(y_pred, y_price, trade_threshold, fee_perc, periods):
     return pos, pnl, daily_pnl, sharpe
 
 def objective_xgb(trial, X_train, X_valid, y_train, y_valid, y_price, train_data_X_train, train_data_X_valid):
-
     # Select features based on Optuna's suggestions
     selected_features = []
     at_least_one_feature = False
@@ -97,18 +95,18 @@ def objective_xgb(trial, X_train, X_valid, y_train, y_valid, y_price, train_data
     # Train the model
     model = xgb.XGBRegressor()
     model.fit(X_train_selected, y_train)
+
     stats= run_model_backtest( train_data_X_train,selected_features,model)
     stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
     ret=stats['Return (Ann.) [%]']
-
     volatility=stats['Volatility (Ann.) [%]']
     ret1=stats1['Return (Ann.) [%]']
-
     volatility1=stats1['Volatility (Ann.) [%]']
     try: sharpe=ret/volatility
     except: sharpe=0
     try: sharpe1=ret1/volatility1
     except: sharpe1=0
+
     trade=stats1['# Trades']
     # Save trade value in the trial object for later access
     trial.set_user_attr('trade', trade)
@@ -119,9 +117,8 @@ def objective_xgb(trial, X_train, X_valid, y_train, y_valid, y_price, train_data
     return ret,volatility,gs
 
 def feature_select_xgb(data, cwd, new_df_no_close_col, feat_trials):
-    X_train, X_valid, y_train, y_valid, train_data, train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = split_optuna_data(data)
+    X_train, X_valid, y_train, y_valid, train_data, train_data_X_train, train_data_X_valid, _, _ = split_optuna_data(data)
     # Define number of trials 
-
     study = optuna.create_study(directions=['maximize', 'minimize', 'minimize'])
     i=0
     while feat_trials > len(set(str(t.params) for t in study.trials)):
@@ -393,19 +390,19 @@ def objective_params_xgb(trial, X_train, X_valid, y_train, y_valid, y_close, tra
     # Train the model
     model = xgb.XGBRegressor(**params, callbacks=[custom_early_stopping_instance])
     model.fit(X_train, y_train)
-    # train_data_X_valid=backtest_data(train_data_X_valid)
+
     stats= run_model_backtest( train_data_X_train,selected_features,model)
     stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
-    ret=stats['Return (Ann.) [%]']
 
+    ret=stats['Return (Ann.) [%]']
     volatility=stats['Volatility (Ann.) [%]']
     ret1=stats1['Return (Ann.) [%]']
-
     volatility1=stats1['Volatility (Ann.) [%]']
     try: sharpe=ret/volatility
     except: sharpe=0
     try: sharpe1=ret1/volatility1
     except: sharpe1=0
+
     trade=stats1['# Trades']
     # Save trade value in the trial object for later access
     trial.set_user_attr('trade', trade)
@@ -435,11 +432,9 @@ def sort_select_cluster(selected_columns_cluster, selected_columns_cluster_with_
 
     return sorted_selected_columns_cluster_with_info  
 
-def hyper_tuning_xgb(train_data, cwd, selected_columns_cluster, selected_columns_cluster_with_info, tuning_trials, saving=True):
+def hyper_tuning_xgb(train_data, cwd, selected_columns_cluster, selected_columns_cluster_with_info, tuning_trials, drop_list, saving=True):
     best_params_list = []
     for idx, data_item in enumerate(selected_columns_cluster):
-
-
         info_train_cols, _ = split_data(selected_columns_cluster_with_info[idx])
         train_cols, _ = split_data(data_item)
 
@@ -457,13 +452,13 @@ def hyper_tuning_xgb(train_data, cwd, selected_columns_cluster, selected_columns
                                                                 train_data['Return'],
                                                                 test_size=0.5,
                                                                 shuffle=False)
-        temp = train_data_X_train.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
+        temp = train_data_X_train.drop(drop_list, axis=1)
         temp=scale_data(temp,X_train)
-        train_data_X_train= pd.concat([train_data_X_train[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
+        train_data_X_train= pd.concat([train_data_X_train[drop_list], temp], axis=1)
 
-        temp = train_data_X_valid.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
+        temp = train_data_X_valid.drop(drop_list, axis=1)
         temp=scale_data(temp,X_train)
-        train_data_X_valid= pd.concat([train_data_X_valid[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
+        train_data_X_valid= pd.concat([train_data_X_valid[drop_list], temp], axis=1)
 
         study = optuna.create_study(directions=['maximize', 'minimize', 'minimize'])
         while tuning_trials > len(set(str(t.params) for t in study.trials)):
@@ -499,10 +494,7 @@ def test_and_save_xgb(data, cwd, top_10_features_per_cluster, selected_columns_c
     train_data, hold_out = split_data(data)
 
     for idx, data_item in enumerate(selected_columns_cluster):
-        train_cols, hold_out_cols = split_data(data_item)
-        # _, info_hold_out_cols= split_data(sorted_selected_columns_cluster_with_info[idx])
-    #     _, test_cols = split_data(data_item)
-        # optuna_data = scale_data(test_cols)
+        _, hold_out_cols = split_data(data_item)
 
         temp= hold_out.drop(drop_list, axis=1)
         optuna_data = train_data.drop(drop_list, axis=1)
@@ -513,18 +505,17 @@ def test_and_save_xgb(data, cwd, top_10_features_per_cluster, selected_columns_c
     #     info_optuna_data = scale_data(temp)
         temp=scale_data(temp,X_train)
         temp= pd.concat([hold_out[drop_list], temp], axis=1)
-
-        temp.set_index('Unnamed: 0', inplace=True)
-        temp.index.name = 'datetime'
+        if 'Unnamed: 0' in drop_list:
+            temp.set_index('Unnamed: 0', inplace=True)
+            temp.index.name = 'datetime'
+        else:
+            temp.index.name = 'datetime'
         temp.index = pd.to_datetime(temp.index)
         selected_features = hold_out_cols.columns
         test_data=temp
         model = xgb.XGBRegressor()
         # Create and train model
         model.load_model(cwd + f"best_in_cluster_{idx}.json")
-
-        # Make predictions
-        # hold_out_cols.columns = optuna_data.columns
 
         stats1= run_model_backtest( test_data,selected_features,model)
         print(stats1)
@@ -539,11 +530,6 @@ def test_and_save_xgb(data, cwd, top_10_features_per_cluster, selected_columns_c
         feature.append(listToStr)
     print(feature)
 
-    feature=[]
-    for i in top_10_features_per_cluster:
-        listToStr = ' '.join([str(elem) for elem in i])
-        feature.append(listToStr)
-
     name=[]
     for i in range(len(selected_columns_cluster)):
         name.append( 'Cluster '+ str(i))
@@ -551,4 +537,5 @@ def test_and_save_xgb(data, cwd, top_10_features_per_cluster, selected_columns_c
     dict = {'Top 10 Feature' : feature, 'Best params': best_params_list, 'Best sharpe':sharpe_list,"Return (Ann.) [%]": return_data,'Volatility':volatility}
     df_result = pd.DataFrame(dict)
     df_result.to_csv(cwd + 'xgb_result.csv')
-    return (df_result)
+
+    return df_result
