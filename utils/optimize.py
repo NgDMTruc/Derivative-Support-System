@@ -4,12 +4,25 @@ import pickle
 import pandas as pd
 import numpy as np
 import xgboost  as xgb
+import lightgbm as lgb
+from lightgbm import LGBMRegressor
+from sklearn.ensemble import RandomForestRegressor
 import optuna
 import sys
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))) # Thêm đường dẫn thư mục gốc (Capstone) vào sys.path
-from utils.backtest import run_model_backtest
-from data.data_utils import split_optuna_data, scale_data, split_data, train_test_split
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import LSTM, Dropout, Dense
+from sklearn.preprocessing import StandardScaler
+from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dense, Dropout,Input
+from sklearn import preprocessing
+from keras.layers import Conv1D,Flatten,MaxPooling1D,Bidirectional,LSTM,Dropout,TimeDistributed,MaxPool2D
+from keras.layers import Dense,GlobalAveragePooling2D
+import tensorflow as tf
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.models import save_model, load_model
+sys.path.append(os.path.abspath('../')) # Thêm đường dẫn của thư mục Capstone vào sys.path
 from xgboost import callback
+from Capstone.utils.backtest import run_model_backtest
+from Capstone.data.data_utils import split_optuna_data, scale_data, split_data, train_test_split
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_samples, silhouette_score
 
@@ -46,6 +59,7 @@ def calculate_sharpe_ratio(pnl):
     return sharpe
 
 def sharpe_for_vn30f(y_pred, y_price, trade_threshold, fee_perc, periods):
+
     # Predict position base on change in future
     pos = [choose_position(roi, trade_threshold) for roi in y_pred]
     pos = np.array(pos)
@@ -62,8 +76,22 @@ def sharpe_for_vn30f(y_pred, y_price, trade_threshold, fee_perc, periods):
     sharpe = calculate_sharpe_ratio(daily_pnl)
 
     return pos, pnl, daily_pnl, sharpe
+def create_custom_cnn(input_shape):
+    model = Sequential()
+    model.add(Conv1D(filters=32, kernel_size=3, activation='relu', input_shape=input_shape))
+    model.add(Dropout(0.5))
+    model.add(Conv1D(filters=64, kernel_size=3, activation='relu'))
+    model.add(MaxPooling1D(pool_size=1))
+    model.add(Conv1D(filters=128, kernel_size=3, activation='relu'))
+    model.add(Flatten())
+    model.add(Dense(50, activation='relu'))
+    model.add(Dense(1))
+    model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+    return model
+#----------------------------------------------- Feature select----------------------------------------------------
 
 def objective_xgb(trial, X_train, X_valid, y_train, y_valid, y_price, train_data_X_train, train_data_X_valid):
+
     # Select features based on Optuna's suggestions
     selected_features = []
     at_least_one_feature = False
@@ -95,18 +123,18 @@ def objective_xgb(trial, X_train, X_valid, y_train, y_valid, y_price, train_data
     # Train the model
     model = xgb.XGBRegressor()
     model.fit(X_train_selected, y_train)
-
     stats= run_model_backtest( train_data_X_train,selected_features,model)
     stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
     ret=stats['Return (Ann.) [%]']
+
     volatility=stats['Volatility (Ann.) [%]']
     ret1=stats1['Return (Ann.) [%]']
+
     volatility1=stats1['Volatility (Ann.) [%]']
     try: sharpe=ret/volatility
     except: sharpe=0
     try: sharpe1=ret1/volatility1
     except: sharpe1=0
-
     trade=stats1['# Trades']
     # Save trade value in the trial object for later access
     trial.set_user_attr('trade', trade)
@@ -117,8 +145,9 @@ def objective_xgb(trial, X_train, X_valid, y_train, y_valid, y_price, train_data
     return ret,volatility,gs
 
 def feature_select_xgb(data, cwd, new_df_no_close_col, feat_trials):
-    X_train, X_valid, y_train, y_valid, train_data, train_data_X_train, train_data_X_valid, _, _ = split_optuna_data(data)
+    X_train, X_valid, y_train, y_valid, train_data, train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = split_optuna_data(data)
     # Define number of trials 
+
     study = optuna.create_study(directions=['maximize', 'minimize', 'minimize'])
     i=0
     while feat_trials > len(set(str(t.params) for t in study.trials)):
@@ -147,7 +176,421 @@ def feature_select_xgb(data, cwd, new_df_no_close_col, feat_trials):
 
     return train_data, sort_df, top_trials, top_features_list
 
-def retrieve_top_pnl(data, top_features_list, drop_list):
+
+
+
+def objective_lgbm(trial, X_train, X_valid, y_train, y_valid, y_price, train_data_X_train, train_data_X_valid):
+    # Select features based on Optuna's suggestions
+    selected_features = []
+    at_least_one_feature = False
+    for col in X_train.columns:
+        select_feature = trial.suggest_categorical(col, [0, 1])
+        if select_feature:
+            selected_features.append(col)
+            at_least_one_feature = True
+    # If no feature was selected, force selection of at least one feature
+    if not at_least_one_feature:
+        # Randomly select one feature to be included
+        forced_feature = trial.suggest_categorical('forced_feature', X_train.columns.tolist())
+        selected_features.append(forced_feature)
+    for t in trial.study.trials:
+        if t.state != optuna.trial.TrialState.COMPLETE:
+            continue
+        if t.params == trial.params:
+            return np.nan # t.values  # Return the previous value without re-evaluating i
+    # Use only the selected features in training
+    X_train_selected = X_train[selected_features]
+    X_valid_selected = X_valid[selected_features]
+    # Train the model
+    model = LGBMRegressor()
+    model.fit(X_train_selected, y_train)
+    stats= run_model_backtest( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    ret=stats['Return (Ann.) [%]']
+    volatility=stats['Volatility (Ann.) [%]']
+    ret1=stats1['Return (Ann.) [%]']
+    volatility1=stats1['Volatility (Ann.) [%]']
+    try: sharpe=ret/volatility
+    except: sharpe=0
+    try: sharpe1=ret1/volatility1
+    except: sharpe1=0
+    trade=stats1['# Trades']
+    # Save trade value in the trial object for later access
+    trial.set_user_attr('trade', trade)
+    try:
+        gs= (abs((abs(sharpe / sharpe1))-1))
+    except:
+        gs=0
+    return ret,volatility,gs
+
+def feature_select_lgbm(data, cwd, new_df_no_close_col, feat_trials):
+    X_train, X_valid, y_train, y_valid, train_data, train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = split_optuna_data(data)
+    # Define number of trials 
+
+    study = optuna.create_study(directions=['maximize', 'minimize', 'minimize'])
+    i=0
+    while feat_trials > len(set(str(t.params) for t in study.trials)):
+        try:
+            i+=1
+            study.optimize(lambda trial: objective_lgbm(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
+            study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + 'lgbm_feature_trials.csv')
+            joblib.dump(study,cwd + 'lgbmmodel.pkl')
+        except:
+            continue
+
+    sort_df = study.trials_dataframe().fillna(0).sort_values('values_0')
+
+    completed_trials = [t for t in study.trials if t.values is not None]
+    completed_trials.sort(key=lambda trial: trial.values, reverse=True) # Sort the completed trials based on their objective values
+
+    # Define top pnl to take for clustering
+    top_trials = completed_trials
+
+    # Extract hyperparameters from top trials
+    top_features_list = []
+
+    for trial in top_trials:
+        best_selected_features = [col for idx, col  in enumerate(new_df_no_close_col.columns) if trial.params[idx] == 1] # if bug try change from idx to col
+        top_features_list.append(best_selected_features)
+
+    return train_data, sort_df, top_trials, top_features_list
+
+
+def objective_rf(trial, X_train, X_valid, y_train, y_valid, y_price, train_data_X_train, train_data_X_valid):
+
+    # Select features based on Optuna's suggestions
+    selected_features = []
+
+    at_least_one_feature = False
+
+    for col in X_train.columns:
+        select_feature = trial.suggest_categorical(col, [0, 1])
+        if select_feature:
+
+            selected_features.append(col)
+            at_least_one_feature = True
+
+    # If no feature was selected, force selection of at least one feature
+    if not at_least_one_feature:
+        # Randomly select one feature to be included
+        forced_feature = trial.suggest_categorical('forced_feature', X_train.columns.tolist())
+        selected_features.append(forced_feature)
+
+    for t in trial.study.trials:
+        if t.state != optuna.trial.TrialState.COMPLETE:
+            continue
+        if t.params == trial.params:
+            return np.nan # t.values  # Return the previous value without re-evaluating i
+    # Use only the selected features in training
+    X_train_selected = X_train[selected_features]
+    X_valid_selected = X_valid[selected_features]
+
+    # Train the model
+    model = RandomForestRegressor()
+    model.fit(X_train_selected, y_train)
+    stats= run_model_backtest( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    ret=stats['Return (Ann.) [%]']
+
+    volatility=stats['Volatility (Ann.) [%]']
+    ret1=stats1['Return (Ann.) [%]']
+
+    volatility1=stats1['Volatility (Ann.) [%]']
+    try: sharpe=ret/volatility
+    except: sharpe=0
+    try: sharpe1=ret1/volatility1
+    except: sharpe1=0
+    trade=stats1['# Trades']
+
+    trial.set_user_attr('trade', trade)
+    try:
+        gs= (abs((abs(sharpe / sharpe1))-1))
+    except:
+        gs=0
+    return ret,volatility,gs
+
+def feature_select_rf(data, cwd, new_df_no_close_col, feat_trials):
+    X_train, X_valid, y_train, y_valid, train_data, train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = split_optuna_data(data)
+    # Define number of trials 
+
+    study = optuna.create_study(directions=['maximize', 'minimize', 'minimize'])
+    i=0
+    while feat_trials > len(set(str(t.params) for t in study.trials)):
+        try:
+            i+=1
+            study.optimize(lambda trial: objective_rf(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
+            study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + 'rf_feature_trials.csv')
+            joblib.dump(study,cwd + 'rfmodel.pkl')
+        except:
+            continue
+
+    sort_df = study.trials_dataframe().fillna(0).sort_values('values_0')
+
+    completed_trials = [t for t in study.trials if t.values is not None]
+    completed_trials.sort(key=lambda trial: trial.values, reverse=True) # Sort the completed trials based on their objective values
+
+    # Define top pnl to take for clustering
+    top_trials = completed_trials
+
+    # Extract hyperparameters from top trials
+    top_features_list = []
+
+    for trial in top_trials:
+        best_selected_features = [col for idx, col  in enumerate(new_df_no_close_col.columns) if trial.params[idx] == 1] # if bug try change from idx to col
+        top_features_list.append(best_selected_features)
+
+    return train_data, sort_df, top_trials, top_features_list
+
+
+def objective_lstm(trial, X_train, X_valid, y_train, y_valid, y_price, train_data_X_train, train_data_X_valid):
+    selected_features = []
+    at_least_one_feature = False
+    for col in X_train.columns:
+        select_feature = trial.suggest_categorical(col, [0, 1])
+        if select_feature:
+            selected_features.append(col)
+            at_least_one_feature = True
+    if not at_least_one_feature:
+        # Randomly select one feature to be included
+        forced_feature = trial.suggest_categorical('forced_feature', X_train.columns.tolist())
+        selected_features.append(forced_feature)
+    for t in trial.study.trials:
+        if t.state != optuna.trial.TrialState.COMPLETE:
+            continue
+        if t.params == trial.params:
+            return np.nan 
+    X_train_selected = X_train[selected_features]
+    X_valid_selected = X_valid[selected_features]
+    input_shape = (X_train.shape[1:])
+    model = Sequential()
+    model.add(LSTM(units = 50, activation = 'relu', return_sequences=True
+                  ,input_shape = (X_train_selected.shape[1], 1)))
+    model.add(Dropout(0.1))
+    model.add(LSTM(units=50))
+    model.add(Dense(1))  # Assuming this output is suitable for the prediction targets
+    model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_absolute_error'])
+    model.fit(X_train_selected, y_train, epochs=5, batch_size=32, validation_data=(X_valid, y_valid), verbose=0)
+    stats= run_model_backtest( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    ret=stats['Return (Ann.) [%]']
+    volatility=stats['Volatility (Ann.) [%]']
+    ret1=stats1['Return (Ann.) [%]']
+    volatility1=stats1['Volatility (Ann.) [%]']
+    try: sharpe=ret/volatility
+    except: sharpe=0
+    try: sharpe1=ret1/volatility1
+    except: sharpe1=0
+    trade=stats1['# Trades']
+    # Save trade value in the trial object for later access
+    trial.set_user_attr('trade', trade)
+    try:
+        gs= (abs((abs(sharpe / sharpe1))-1))
+    except:
+        gs=0
+    return ret,volatility,gs
+
+def feature_select_lstm(data, cwd, new_df_no_close_col, feat_trials):
+    X_train, X_valid, y_train, y_valid, train_data, train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = split_optuna_data(data)
+    # Define number of trials 
+
+    study = optuna.create_study(directions=['maximize', 'minimize', 'minimize'])
+    i=0
+    while feat_trials > len(set(str(t.params) for t in study.trials)):
+        try:
+            i+=1
+            study.optimize(lambda trial: objective_lstm(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
+            study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + 'lstm_feature_trials.csv')
+            joblib.dump(study,cwd + 'lstmmodel.pkl')
+        except:
+            continue
+
+    sort_df = study.trials_dataframe().fillna(0).sort_values('values_0')
+
+    completed_trials = [t for t in study.trials if t.values is not None]
+    completed_trials.sort(key=lambda trial: trial.values, reverse=True) # Sort the completed trials based on their objective values
+
+    # Define top pnl to take for clustering
+    top_trials = completed_trials
+
+    # Extract hyperparameters from top trials
+    top_features_list = []
+
+    for trial in top_trials:
+        best_selected_features = [col for idx, col  in enumerate(new_df_no_close_col.columns) if trial.params[idx] == 1] # if bug try change from idx to col
+        top_features_list.append(best_selected_features)
+
+    return train_data, sort_df, top_trials, top_features_list
+
+def objective_cnn(trial, X_train, X_valid, y_train, y_valid, y_price, train_data_X_train, train_data_X_valid):
+    # Select features based on Optuna's suggestions
+    selected_features = []
+    at_least_one_feature = False
+    for col in X_train.columns:
+        select_feature = trial.suggest_categorical(col, [0, 1])
+        if select_feature:
+            selected_features.append(col)
+            at_least_one_feature = True
+    # If no feature was selected, force selection of at least one feature
+    if not at_least_one_feature:
+        # Randomly select one feature to be included
+        forced_feature = trial.suggest_categorical('forced_feature', X_train.columns.tolist())
+        selected_features.append(forced_feature)
+    for t in trial.study.trials:
+        if t.state != optuna.trial.TrialState.COMPLETE:
+            continue
+        if t.params == trial.params:
+            return np.nan # t.values  # Return the previous value without re-evaluating i
+    # Use only the selected features in training
+    X_train_selected = X_train[selected_features]
+    X_valid_selected = X_valid[selected_features]
+    # Train the model
+    input_shape = (X_train_selected.shape[1], 1)
+    model = create_custom_cnn(input_shape)
+    model.fit( X_train_selected , y_train, epochs=5, batch_size=32, validation_data=(X_valid_selected, y_valid), verbose=0)
+    stats= run_model_backtest( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    ret=stats['Return (Ann.) [%]']
+    volatility=stats['Volatility (Ann.) [%]']
+    ret1=stats1['Return (Ann.) [%]']
+    volatility1=stats1['Volatility (Ann.) [%]']
+    try: sharpe=ret/volatility
+    except: sharpe=0
+    try: sharpe1=ret1/volatility1
+    except: sharpe1=0
+    trade=stats1['# Trades']
+    # Save trade value in the trial object for later access
+    trial.set_user_attr('trade', trade)
+    try:
+        gs= (abs((abs(sharpe / sharpe1))-1))
+    except:
+        gs=0
+    return ret,volatility,gs
+
+def feature_select_cnn(data, cwd, new_df_no_close_col, feat_trials):
+    X_train, X_valid, y_train, y_valid, train_data, train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = split_optuna_data(data)
+    # Define number of trials 
+
+    study = optuna.create_study(directions=['maximize', 'minimize', 'minimize'])
+    i=0
+    while feat_trials > len(set(str(t.params) for t in study.trials)):
+        try:
+            i+=1
+            study.optimize(lambda trial: objective_cnn(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
+            study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + 'cnn_feature_trials.csv')
+            joblib.dump(study,cwd + 'cnnmodel.pkl')
+        except:
+            continue
+
+    sort_df = study.trials_dataframe().fillna(0).sort_values('values_0')
+
+    completed_trials = [t for t in study.trials if t.values is not None]
+    completed_trials.sort(key=lambda trial: trial.values, reverse=True) # Sort the completed trials based on their objective values
+
+    # Define top pnl to take for clustering
+    top_trials = completed_trials
+
+    # Extract hyperparameters from top trials
+    top_features_list = []
+
+    for trial in top_trials:
+        best_selected_features = [col for idx, col  in enumerate(new_df_no_close_col.columns) if trial.params[idx] == 1] # if bug try change from idx to col
+        top_features_list.append(best_selected_features)
+
+    return train_data, sort_df, top_trials, top_features_list
+
+def objective_cnn_lstm(trial, X_train, X_valid, y_train, y_valid, y_price, train_data_X_train, train_data_X_valid):
+    # Select features based on Optuna's suggestions
+    selected_features = []
+    at_least_one_feature = False
+    for col in X_train.columns:
+        select_feature = trial.suggest_categorical(col, [0, 1])
+        if select_feature:
+
+            selected_features.append(col)
+            at_least_one_feature = True
+    # If no feature was selected, force selection of at least one feature
+    if not at_least_one_feature:
+        # Randomly select one feature to be included
+        forced_feature = trial.suggest_categorical('forced_feature', X_train.columns.tolist())
+        selected_features.append(forced_feature)
+    for t in trial.study.trials:
+        if t.state != optuna.trial.TrialState.COMPLETE:
+            continue
+        if t.params == trial.params:
+            return np.nan # t.values  # Return the previous value without re-evaluating i
+    # Use only the selected features in training
+    X_train_selected = X_train[selected_features]
+    X_valid_selected = X_valid[selected_features]
+    # Train the model
+    input_shape = (X_train_selected.shape[1], 1)
+    # Create a Sequential model
+    model = Sequential()
+    #add model layers
+    model.add(Conv1D(64, kernel_size=1, activation='relu', input_shape=input_shape))
+    model.add(MaxPooling1D(1))
+    model.add(Conv1D(128, kernel_size=1, activation='relu'))
+    model.add(MaxPooling1D(2))
+    model.add(Conv1D(filters=256, kernel_size=3, activation='relu'))
+    # model.add(Flatten())
+    model.add(LSTM(50,return_sequences=True))
+    model.add(Dropout(0.1))
+    model.add(LSTM(50,return_sequences=False))
+    model.add(Dropout(0.1))
+    model.add(Dense(1))
+    model.compile(optimizer='RMSprop', loss='mse')
+    model.fit( X_train_selected , y_train, epochs=10, batch_size=32, validation_data=(X_valid_selected, y_valid), verbose=0)
+    stats= run_model_backtest( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    ret=stats['Return (Ann.) [%]']
+    volatility=stats['Volatility (Ann.) [%]']
+    ret1=stats1['Return (Ann.) [%]']
+    volatility1=stats1['Volatility (Ann.) [%]']
+    try: sharpe=ret/volatility
+    except: sharpe=0
+    try: sharpe1=ret1/volatility1
+    except: sharpe1=0
+    trade=stats1['# Trades']
+    # Save trade value in the trial object for later access
+    trial.set_user_attr('trade', trade)
+    try:
+        gs= (abs((abs(sharpe / sharpe1))-1))
+    except:
+        gs=0
+    return ret,volatility,gs
+
+def feature_select_cnn_lstm(data, cwd, new_df_no_close_col, feat_trials):
+    X_train, X_valid, y_train, y_valid, train_data, train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = split_optuna_data(data)
+    # Define number of trials 
+
+    study = optuna.create_study(directions=['maximize', 'minimize', 'minimize'])
+    i=0
+    while feat_trials > len(set(str(t.params) for t in study.trials)):
+        try:
+            i+=1
+            study.optimize(lambda trial: objective_cnn_lstm(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
+            study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + 'cnn_lstm_feature_trials.csv')
+            joblib.dump(study,cwd + 'cnn_lstmmodel.pkl')
+        except:
+            continue
+
+    sort_df = study.trials_dataframe().fillna(0).sort_values('values_0')
+
+    completed_trials = [t for t in study.trials if t.values is not None]
+    completed_trials.sort(key=lambda trial: trial.values, reverse=True) # Sort the completed trials based on their objective values
+
+    # Define top pnl to take for clustering
+    top_trials = completed_trials
+
+    # Extract hyperparameters from top trials
+    top_features_list = []
+
+    for trial in top_trials:
+        best_selected_features = [col for idx, col  in enumerate(new_df_no_close_col.columns) if trial.params[idx] == 1] # if bug try change from idx to col
+        top_features_list.append(best_selected_features)
+
+    return train_data, sort_df, top_trials, top_features_list
+#----------------------------------------------- ONC----------------------------------------------------
+def retrieve_top_pnl_xgb(data, top_features_list, drop_list):
     top_pnl = []
     for best_selected_features in top_features_list:
 
@@ -164,6 +607,161 @@ def retrieve_top_pnl(data, top_features_list, drop_list):
         # Create and train model
         model = xgb.XGBRegressor()
         model.fit(X_train, y_train)
+        trade_threshold = 0
+        # Make predictions
+        y_pred_valid = model.predict(X_valid)
+        _, pnl_valid, _, _ = sharpe_for_vn30f(y_pred_valid, y_valid, trade_threshold=trade_threshold, fee_perc=0.01, periods=10)
+        pnl_valid_no_nan = np.nan_to_num(pnl_valid, nan=0)
+        top_pnl.append(pnl_valid_no_nan)
+        # pnl = pd.DataFrame(top_pnl)
+        # pnl = pnl.transpose()
+    return top_pnl
+
+def retrieve_top_pnl_lgbm(data, top_features_list, drop_list):
+    top_pnl = []
+    for best_selected_features in top_features_list:
+
+        new_df_selected = data[drop_list+best_selected_features]
+        train_select_col_data, _ = split_data(new_df_selected)
+
+        retrain_data = train_select_col_data.drop(drop_list, axis=1)
+
+        X_train, X_valid, y_train, y_valid = train_test_split(retrain_data,
+                                                        train_select_col_data['Return'],
+                                                        test_size=0.5,shuffle=False)
+        X_train=scale_data(X_train,X_train)
+        X_valid=scale_data(X_valid,X_train)
+        # Create and train model
+        model = LGBMRegressor()
+        model.fit(X_train, y_train)
+        trade_threshold = 0
+        # Make predictions
+        y_pred_valid = model.predict(X_valid)
+        _, pnl_valid, _, _ = sharpe_for_vn30f(y_pred_valid, y_valid, trade_threshold=trade_threshold, fee_perc=0.01, periods=10)
+        pnl_valid_no_nan = np.nan_to_num(pnl_valid, nan=0)
+        top_pnl.append(pnl_valid_no_nan)
+        # pnl = pd.DataFrame(top_pnl)
+        # pnl = pnl.transpose()
+    return top_pnl
+
+def retrieve_top_pnl_rf(data, top_features_list, drop_list):
+    top_pnl = []
+    for best_selected_features in top_features_list:
+
+        new_df_selected = data[drop_list+best_selected_features]
+        train_select_col_data, _ = split_data(new_df_selected)
+
+        retrain_data = train_select_col_data.drop(drop_list, axis=1)
+
+        X_train, X_valid, y_train, y_valid = train_test_split(retrain_data,
+                                                        train_select_col_data['Return'],
+                                                        test_size=0.5,shuffle=False)
+        X_train=scale_data(X_train,X_train)
+        X_valid=scale_data(X_valid,X_train)
+        # Create and train model
+        model = RandomForestRegressor()
+        model.fit(X_train, y_train)
+        trade_threshold = 0
+        # Make predictions
+        y_pred_valid = model.predict(X_valid)
+        _, pnl_valid, _, _ = sharpe_for_vn30f(y_pred_valid, y_valid, trade_threshold=trade_threshold, fee_perc=0.01, periods=10)
+        pnl_valid_no_nan = np.nan_to_num(pnl_valid, nan=0)
+        top_pnl.append(pnl_valid_no_nan)
+        # pnl = pd.DataFrame(top_pnl)
+        # pnl = pnl.transpose()
+    return top_pnl
+
+def retrieve_top_pnl_cnn(data, top_features_list, drop_list):
+    top_pnl = []
+    for best_selected_features in top_features_list:
+
+        new_df_selected = data[drop_list+best_selected_features]
+        train_select_col_data, _ = split_data(new_df_selected)
+
+        retrain_data = train_select_col_data.drop(drop_list, axis=1)
+
+        X_train, X_valid, y_train, y_valid = train_test_split(retrain_data,
+                                                        train_select_col_data['Return'],
+                                                        test_size=0.5,shuffle=False)
+        X_train=scale_data(X_train,X_train)
+        X_valid=scale_data(X_valid,X_train)
+        # Create and train model
+        model = create_custom_cnn((X_train.shape[1], 1))
+        model.fit(X_train, y_train, epochs=5, batch_size=32, validation_data=(X_valid, y_valid), verbose=0)
+        trade_threshold = 0
+        # Make predictions
+        y_pred_valid = model.predict(X_valid)
+        _, pnl_valid, _, _ = sharpe_for_vn30f(y_pred_valid, y_valid, trade_threshold=trade_threshold, fee_perc=0.01, periods=10)
+        pnl_valid_no_nan = np.nan_to_num(pnl_valid, nan=0)
+        top_pnl.append(pnl_valid_no_nan)
+        # pnl = pd.DataFrame(top_pnl)
+        # pnl = pnl.transpose()
+    return top_pnl
+
+def retrieve_top_pnl_lstm(data, top_features_list, drop_list):
+    top_pnl = []
+    for best_selected_features in top_features_list:
+
+        new_df_selected = data[drop_list+best_selected_features]
+        train_select_col_data, _ = split_data(new_df_selected)
+
+        retrain_data = train_select_col_data.drop(drop_list, axis=1)
+
+        X_train, X_valid, y_train, y_valid = train_test_split(retrain_data,
+                                                        train_select_col_data['Return'],
+                                                        test_size=0.5,shuffle=False)
+        X_train=scale_data(X_train,X_train)
+        X_valid=scale_data(X_valid,X_train)
+        # Create and train model
+        model = Sequential()
+        model.add(LSTM(units = 50, activation = 'relu', return_sequences=True
+                    ,input_shape = (X_train.shape[1], 1)))
+        model.add(Dropout(0.1))
+        model.add(LSTM(units=50))
+        model.add(Dense(1))  # Assuming this output is suitable for the prediction targets
+        model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_absolute_error'])
+        model.fit(X_train, y_train, epochs=5, batch_size=32, validation_data=(X_valid, y_valid), verbose=0)
+        trade_threshold = 0
+        # Make predictions
+        y_pred_valid = model.predict(X_valid)
+        _, pnl_valid, _, _ = sharpe_for_vn30f(y_pred_valid, y_valid, trade_threshold=trade_threshold, fee_perc=0.01, periods=10)
+        pnl_valid_no_nan = np.nan_to_num(pnl_valid, nan=0)
+        top_pnl.append(pnl_valid_no_nan)
+        # pnl = pd.DataFrame(top_pnl)
+        # pnl = pnl.transpose()
+    return top_pnl
+
+def retrieve_top_pnl_cnn_lstm(data, top_features_list, drop_list):
+    top_pnl = []
+    for best_selected_features in top_features_list:
+
+        new_df_selected = data[drop_list+best_selected_features]
+        train_select_col_data, _ = split_data(new_df_selected)
+
+        retrain_data = train_select_col_data.drop(drop_list, axis=1)
+
+        X_train, X_valid, y_train, y_valid = train_test_split(retrain_data,
+                                                        train_select_col_data['Return'],
+                                                        test_size=0.5,shuffle=False)
+        X_train=scale_data(X_train,X_train)
+        X_valid=scale_data(X_valid,X_train)
+        input_shape = (X_train.shape[1], 1)
+        # Create and train model
+        model = Sequential()
+        #add model layers
+        model.add(Conv1D(64, kernel_size=1, activation='relu', input_shape=input_shape))
+        model.add(MaxPooling1D(1))
+        model.add(Conv1D(128, kernel_size=1, activation='relu'))
+        model.add(MaxPooling1D(2))
+        model.add(Conv1D(filters=256, kernel_size=3, activation='relu'))
+        # model.add(Flatten())
+        model.add(LSTM(50,return_sequences=True))
+        model.add(Dropout(0.1))
+        model.add(LSTM(50,return_sequences=False))
+        model.add(Dropout(0.1))
+        model.add(Dense(1))
+        model.compile(optimizer='RMSprop', loss='mse')
+        model.fit( X_train , y_train, epochs=10, batch_size=32, validation_data=(X_valid, y_valid), verbose=0)
         trade_threshold = 0
         # Make predictions
         y_pred_valid = model.predict(X_valid)
@@ -281,7 +879,11 @@ def clusterKMeansTop(corr0: pd.DataFrame, maxNumClusters=None, n_init=10):
             return corrNew, clstrsNew, silhNew
             #return corr1, clstrs, silh, stat
 
-def process_clusters_and_save(clstrsNew, top_trials, new_df_no_close_col, data, cwd, drop_list, saving=True):
+def process_clusters_and_save(clstrsNew, top_trials, new_df_no_close_col, data, cwd, drop_list, output_folder="output_clusters", saving=True):
+    # Ensure the output folder exists
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
     cluster_lists = []
     top_10_features_per_cluster = []
     selected_columns_cluster = []
@@ -316,7 +918,7 @@ def process_clusters_and_save(clstrsNew, top_trials, new_df_no_close_col, data, 
         selected_columns = new_df_no_close_col.iloc[:, item]
         selected_columns_cluster.append(selected_columns)
         # Add the required columns to the existing selected columns for each cluster
-        selected_columns_with_info = pd.concat([data[drop_list], selected_columns], axis=1)
+        selected_columns_with_info = pd.concat([data[[ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0']], selected_columns], axis=1)
         selected_columns_cluster_with_info.append(selected_columns_with_info)
         
     if saving == True:
@@ -332,6 +934,8 @@ def process_clusters_and_save(clstrsNew, top_trials, new_df_no_close_col, data, 
 
     # Return DataFrames if further processing is needed
     return top_10_features_per_cluster, selected_columns_cluster, selected_columns_cluster_with_info
+
+#----------------------------------------------- Hyperparameter Tunning----------------------------------------------------
 
 class CustomEarlyStopping(callback.TrainingCallback):
     def __init__(self, min_delta, patience, verbose=False):
@@ -380,29 +984,27 @@ def objective_params_xgb(trial, X_train, X_valid, y_train, y_valid, y_close, tra
             continue
         if t.params == trial.params:
             return np.nan #t.values  # Return the previous value without re-evaluating i
-
     min_delta = 0.0001
     patience = 30
-
     custom_early_stopping_instance = CustomEarlyStopping(min_delta=min_delta, patience=patience, verbose=True)
     selected_features = X_train.columns
 
     # Train the model
     model = xgb.XGBRegressor(**params, callbacks=[custom_early_stopping_instance])
     model.fit(X_train, y_train)
-
+    # train_data_X_valid=backtest_data(train_data_X_valid)
     stats= run_model_backtest( train_data_X_train,selected_features,model)
     stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
-
     ret=stats['Return (Ann.) [%]']
+
     volatility=stats['Volatility (Ann.) [%]']
     ret1=stats1['Return (Ann.) [%]']
+
     volatility1=stats1['Volatility (Ann.) [%]']
     try: sharpe=ret/volatility
     except: sharpe=0
     try: sharpe1=ret1/volatility1
     except: sharpe1=0
-
     trade=stats1['# Trades']
     # Save trade value in the trial object for later access
     trial.set_user_attr('trade', trade)
@@ -411,6 +1013,285 @@ def objective_params_xgb(trial, X_train, X_valid, y_train, y_valid, y_close, tra
     except:
         gs=0
     return ret,volatility,gs
+
+def objective_params_lgbm(trial, X_train, X_valid, y_train, y_valid, y_close, train_data_X_train, train_data_X_valid):
+    # Define the hyperparameter search space
+    params = {
+        'objective': 'regression',
+        'metric': 'rmse',
+        'boosting_type': 'gbdt',
+        'n_estimators': trial.suggest_int('n_estimators', 100, 1000),
+        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1),
+        'num_leaves': trial.suggest_int('num_leaves', 20, 150),
+        'max_depth': trial.suggest_int('max_depth', -1, 50),
+        'min_child_samples': trial.suggest_int('min_child_samples', 10, 100),
+        'subsample': trial.suggest_float('subsample', 0.5, 1.0),
+        'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1.0)
+    }
+
+    # Check duplication and skip if it's detected.
+    for t in trial.study.trials:
+        if t.state != optuna.trial.TrialState.COMPLETE:
+            continue
+        if t.params == trial.params:
+            return np.nan #t.values  # Return the previous value without re-evaluating i
+    min_delta = 0.0001
+    patience = 30
+    custom_early_stopping_instance = CustomEarlyStopping(min_delta=min_delta, patience=patience, verbose=True)
+    selected_features = X_train.columns
+
+    # Train the model
+    model = LGBMRegressor(**params, callbacks=[custom_early_stopping_instance])
+    model.fit(X_train, y_train)
+    # train_data_X_valid=backtest_data(train_data_X_valid)
+    stats= run_model_backtest( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    ret=stats['Return (Ann.) [%]']
+
+    volatility=stats['Volatility (Ann.) [%]']
+    ret1=stats1['Return (Ann.) [%]']
+
+    volatility1=stats1['Volatility (Ann.) [%]']
+    try: sharpe=ret/volatility
+    except: sharpe=0
+    try: sharpe1=ret1/volatility1
+    except: sharpe1=0
+    trade=stats1['# Trades']
+    # Save trade value in the trial object for later access
+    trial.set_user_attr('trade', trade)
+    try:
+        gs= (abs((abs(sharpe / sharpe1))-1))
+    except:
+        gs=0
+    return ret,volatility,gs
+
+
+def objective_params_rf(trial, X_train, X_valid, y_train, y_valid, y_close, train_data_X_train, train_data_X_valid):
+    # Define the hyperparameter search space
+    params = {
+        'n_estimators' : trial.suggest_int("n_estimators", 50, 200),
+        'max_depth' : trial.suggest_int("max_depth", 2, 20),
+        'min_samples_split' : trial.suggest_int("min_samples_split", 2, 10),
+        'min_samples_leaf' : trial.suggest_int("min_samples_leaf", 1, 4),
+        }
+
+    # Check duplication and skip if it's detected.
+    for t in trial.study.trials:
+        if t.state != optuna.trial.TrialState.COMPLETE:
+            continue
+        if t.params == trial.params:
+            return np.nan #t.values  # Return the previous value without re-evaluating i
+   
+    selected_features = X_train.columns
+
+    # Train the model
+    model = RandomForestRegressor(**params)
+    model.fit(X_train, y_train)
+    # train_data_X_valid=backtest_data(train_data_X_valid)
+    stats= run_model_backtest( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    ret=stats['Return (Ann.) [%]']
+
+    volatility=stats['Volatility (Ann.) [%]']
+    ret1=stats1['Return (Ann.) [%]']
+
+    volatility1=stats1['Volatility (Ann.) [%]']
+    try: sharpe=ret/volatility
+    except: sharpe=0
+    try: sharpe1=ret1/volatility1
+    except: sharpe1=0
+    trade=stats1['# Trades']
+    # Save trade value in the trial object for later access
+    trial.set_user_attr('trade', trade)
+    try:
+        gs= (abs((abs(sharpe / sharpe1))-1))
+    except:
+        gs=0
+    return ret,volatility,gs
+
+
+def objective_params_lstm(trial, X_train, X_valid, y_train, y_valid, y_close, train_data_X_train, train_data_X_valid):
+    # Define the hyperparameter search space
+    units = trial.suggest_int('units', 50, 200)
+    dropout = trial.suggest_float('dropout', 0.1, 0.5)
+    batch_size = trial.suggest_categorical('batch_size', [16,32, 64])
+    epochs = trial.suggest_int('epochs', 10, 50)
+
+    # Check duplication and skip if it's detected.
+    for t in trial.study.trials:
+        if t.state != optuna.trial.TrialState.COMPLETE:
+            continue
+        if t.params == trial.params:
+            return np.nan #t.values  # Return the previous value without re-evaluating i
+   
+    selected_features = X_train.columns
+
+    # Train the model
+    model = Sequential()
+
+    model.add(LSTM(units = units, activation = 'relu', return_sequences=True
+                  ,input_shape = (X_train.shape[1], 1)))
+    model.add(Dropout(dropout))
+    model.add(LSTM(units=units))
+    model.add(Dense(1))  # Assuming this output is suitable for the prediction targets
+    model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_absolute_error'])
+    # model.fit(X_train, y_train, epochs=5, batch_size=32, validation_data=(X_valid, y_valid), verbose=0)
+    early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+    model.fit(
+        X_train, y_train,
+        validation_data=(X_valid, y_valid),
+        epochs=epochs,
+        batch_size=batch_size,
+        verbose=0
+    )
+    # train_data_X_valid=backtest_data(train_data_X_valid)
+    stats= run_model_backtest( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    ret=stats['Return (Ann.) [%]']
+
+    volatility=stats['Volatility (Ann.) [%]']
+    ret1=stats1['Return (Ann.) [%]']
+
+    volatility1=stats1['Volatility (Ann.) [%]']
+    try: sharpe=ret/volatility
+    except: sharpe=0
+    try: sharpe1=ret1/volatility1
+    except: sharpe1=0
+    trade=stats1['# Trades']
+    # Save trade value in the trial object for later access
+    trial.set_user_attr('trade', trade)
+    try:
+        gs= (abs((abs(sharpe / sharpe1))-1))
+    except:
+        gs=0
+    return ret,volatility,gs
+
+def objective_params_cnn(trial, X_train, X_valid, y_train, y_valid, y_close, train_data_X_train, train_data_X_valid):
+    # Define the hyperparameter search space
+    filters = trial.suggest_categorical('filters', [32,64,128, 256])
+    dropout = trial.suggest_float('dropout', 0.1, 0.5)
+    batch_size = trial.suggest_categorical('batch_size', [16,32,64])
+    epochs = trial.suggest_int('epochs', 10, 50)
+
+    # Check duplication and skip if it's detected.
+    for t in trial.study.trials:
+        if t.state != optuna.trial.TrialState.COMPLETE:
+            continue
+        if t.params == trial.params:
+            return np.nan #t.values  # Return the previous value without re-evaluating i
+   
+    selected_features = X_train.columns
+
+    # Train the model
+    model = Sequential()
+    # First convolutional block
+    model.add(Conv1D(filters=filters, kernel_size=3, activation='relu', input_shape=(X_train.shape[1], 1)))
+    model.add(Dropout(dropout))
+    # Second convolutional block
+    model.add(Conv1D(filters=filters, kernel_size=3, activation='relu'))
+    model.add(MaxPooling1D(pool_size=1))
+    # Third convolutional block
+    model.add(Conv1D(filters=filters, kernel_size=3, activation='relu'))
+    model.add(Flatten())
+    model.add(Dense(50, activation='relu'))
+    # Output layer for regression (no activation function for linear output)
+    model.add(Dense(1))
+    # Compile the model
+    model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+    early_stopping = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True)
+    model.fit(
+        X_train, y_train,
+        validation_data=(X_valid, y_valid),
+        epochs=epochs,
+        batch_size=batch_size,
+        verbose=0
+    )
+    # train_data_X_valid=backtest_data(train_data_X_valid)
+    stats= run_model_backtest( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    ret=stats['Return (Ann.) [%]']
+
+    volatility=stats['Volatility (Ann.) [%]']
+    ret1=stats1['Return (Ann.) [%]']
+
+    volatility1=stats1['Volatility (Ann.) [%]']
+    try: sharpe=ret/volatility
+    except: sharpe=0
+    try: sharpe1=ret1/volatility1
+    except: sharpe1=0
+    trade=stats1['# Trades']
+    # Save trade value in the trial object for later access
+    trial.set_user_attr('trade', trade)
+    try:
+        gs= (abs((abs(sharpe / sharpe1))-1))
+    except:
+        gs=0
+    return ret,volatility,gs
+
+def objective_params_cnn_lstm(trial, X_train, X_valid, y_train, y_valid, y_close, train_data_X_train, train_data_X_valid):
+    # Define the hyperparameter search space
+    filters1 = trial.suggest_categorical('filters1', [64,128, 256])
+    filters2 = trial.suggest_categorical('filters2', [64,128, 256])
+    filters3 = trial.suggest_categorical('filters3', [64,128, 256])
+    units= trial.suggest_int('units', 50, 200)
+    dropout = trial.suggest_float('dropout', 0.1, 0.5)
+    batch_size = trial.suggest_categorical('batch_size', [16,32, 64])
+    epochs = trial.suggest_int('epochs', 10, 50)
+
+    # Check duplication and skip if it's detected.
+    for t in trial.study.trials:
+        if t.state != optuna.trial.TrialState.COMPLETE:
+            continue
+        if t.params == trial.params:
+            return np.nan #t.values  # Return the previous value without re-evaluating i
+   
+    selected_features = X_train.columns
+    input_shape = (X_train.shape[1], 1)
+    # Train the model
+    model = Sequential()
+    #add model layers
+    model.add(Conv1D(filters1, kernel_size=1, activation='relu', input_shape=input_shape))
+    model.add(MaxPooling1D(1))
+    model.add(Conv1D(filters2, kernel_size=1, activation='relu'))
+    model.add(MaxPooling1D(2))
+    model.add(Conv1D(filters=filters3, kernel_size=3, activation='relu'))
+    # model.add(Flatten())
+    model.add(LSTM(units,return_sequences=True))
+    model.add(Dropout(dropout))
+    model.add(LSTM(units,return_sequences=False))
+    model.add(Dropout(dropout))
+    model.add(Dense(1))
+    model.compile(optimizer='RMSprop', loss='mse')
+    # model.fit( X_train , y_train, epochs=10, batch_size=32, validation_data=(X_valid, y_valid), verbose=0)
+    model.fit(
+        X_train, y_train,
+        validation_data=(X_valid, y_valid),
+        epochs=epochs,
+        batch_size=batch_size,
+        verbose=0
+    )
+    # train_data_X_valid=backtest_data(train_data_X_valid)
+    stats= run_model_backtest( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    ret=stats['Return (Ann.) [%]']
+
+    volatility=stats['Volatility (Ann.) [%]']
+    ret1=stats1['Return (Ann.) [%]']
+
+    volatility1=stats1['Volatility (Ann.) [%]']
+    try: sharpe=ret/volatility
+    except: sharpe=0
+    try: sharpe1=ret1/volatility1
+    except: sharpe1=0
+    trade=stats1['# Trades']
+    # Save trade value in the trial object for later access
+    trial.set_user_attr('trade', trade)
+    try:
+        gs= (abs((abs(sharpe / sharpe1))-1))
+    except:
+        gs=0
+    return ret,volatility,gs
+
 
 def sort_select_cluster(selected_columns_cluster, selected_columns_cluster_with_info, drop_list):
     # Tạo list mới cho các DataFrame đã sắp xếp
@@ -432,9 +1313,11 @@ def sort_select_cluster(selected_columns_cluster, selected_columns_cluster_with_
 
     return sorted_selected_columns_cluster_with_info  
 
-def hyper_tuning_xgb(train_data, cwd, selected_columns_cluster, selected_columns_cluster_with_info, tuning_trials, drop_list, saving=True):
+def hyper_tuning_xgb(train_data, cwd, selected_columns_cluster, selected_columns_cluster_with_info, tuning_trials, saving=True):
     best_params_list = []
     for idx, data_item in enumerate(selected_columns_cluster):
+
+
         info_train_cols, _ = split_data(selected_columns_cluster_with_info[idx])
         train_cols, _ = split_data(data_item)
 
@@ -452,13 +1335,13 @@ def hyper_tuning_xgb(train_data, cwd, selected_columns_cluster, selected_columns
                                                                 train_data['Return'],
                                                                 test_size=0.5,
                                                                 shuffle=False)
-        temp = train_data_X_train.drop(drop_list, axis=1)
+        temp = train_data_X_train.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
         temp=scale_data(temp,X_train)
-        train_data_X_train= pd.concat([train_data_X_train[drop_list], temp], axis=1)
+        train_data_X_train= pd.concat([train_data_X_train[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
 
-        temp = train_data_X_valid.drop(drop_list, axis=1)
+        temp = train_data_X_valid.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
         temp=scale_data(temp,X_train)
-        train_data_X_valid= pd.concat([train_data_X_valid[drop_list], temp], axis=1)
+        train_data_X_valid= pd.concat([train_data_X_valid[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
 
         study = optuna.create_study(directions=['maximize', 'minimize', 'minimize'])
         while tuning_trials > len(set(str(t.params) for t in study.trials)):
@@ -487,6 +1370,352 @@ def hyper_tuning_xgb(train_data, cwd, selected_columns_cluster, selected_columns
 
     return best_params_list
 
+def hyper_tuning_lgbm(train_data, cwd, selected_columns_cluster, selected_columns_cluster_with_info, tuning_trials, saving=True):
+    best_params_list = []
+    for idx, data_item in enumerate(selected_columns_cluster):
+
+
+        info_train_cols, _ = split_data(selected_columns_cluster_with_info[idx])
+        train_cols, _ = split_data(data_item)
+
+        info_train_cols.set_index('Unnamed: 0', inplace=True)
+        info_train_cols.index.name = 'datetime'
+        info_train_cols.index = pd.to_datetime(info_train_cols.index)
+
+        X_train, X_valid, y_train, y_valid = train_test_split(train_cols,
+                                                                train_data['Return'],
+                                                                test_size=0.5,
+                                                                shuffle=False)
+        X_train=scale_data(X_train,X_train)
+        X_valid=scale_data(X_valid,X_train)
+        train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = train_test_split(info_train_cols,
+                                                                train_data['Return'],
+                                                                test_size=0.5,
+                                                                shuffle=False)
+        temp = train_data_X_train.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
+        temp=scale_data(temp,X_train)
+        train_data_X_train= pd.concat([train_data_X_train[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
+
+        temp = train_data_X_valid.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
+        temp=scale_data(temp,X_train)
+        train_data_X_valid= pd.concat([train_data_X_valid[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
+
+        study = optuna.create_study(directions=['maximize', 'minimize', 'minimize'])
+        while tuning_trials > len(set(str(t.params) for t in study.trials)):
+            try:
+                study.optimize(lambda trial: objective_params_lgbm(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
+                study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + f'hypertuning{idx}.csv')
+                joblib.dump(study,cwd + f'{tuning_trials}hypertuningcluster{idx}.pkl')
+            except:
+                continue
+
+        completed_trials = [t for t in study.trials if t.values is not None]
+        completed_trials.sort(key=lambda trial: trial.values, reverse=True) # Sort trials based on objective values
+
+        # Select top 1 trials
+        params = completed_trials[0].params
+        best_params_list.append(params)
+
+        model = LGBMRegressor(**params)
+        model.fit(X_train, y_train)    
+        joblib.dump(model,cwd + f'best_in_cluster_{idx}.pkl')
+    if saving==True:
+        with open(cwd + 'best_params_list.pkl', 'wb') as f:
+            pickle.dump(best_params_list, f)
+    return best_params_list
+
+def hyper_tuning_rf(train_data, cwd, selected_columns_cluster, selected_columns_cluster_with_info, tuning_trials, saving=True):
+    best_params_list = []
+    for idx, data_item in enumerate(selected_columns_cluster):
+
+
+        info_train_cols, _ = split_data(selected_columns_cluster_with_info[idx])
+        train_cols, _ = split_data(data_item)
+
+        info_train_cols.set_index('Unnamed: 0', inplace=True)
+        info_train_cols.index.name = 'datetime'
+        info_train_cols.index = pd.to_datetime(info_train_cols.index)
+
+        X_train, X_valid, y_train, y_valid = train_test_split(train_cols,
+                                                                train_data['Return'],
+                                                                test_size=0.5,
+                                                                shuffle=False)
+        X_train=scale_data(X_train,X_train)
+        X_valid=scale_data(X_valid,X_train)
+        train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = train_test_split(info_train_cols,
+                                                                train_data['Return'],
+                                                                test_size=0.5,
+                                                                shuffle=False)
+        temp = train_data_X_train.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
+        temp=scale_data(temp,X_train)
+        train_data_X_train= pd.concat([train_data_X_train[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
+
+        temp = train_data_X_valid.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
+        temp=scale_data(temp,X_train)
+        train_data_X_valid= pd.concat([train_data_X_valid[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
+
+        study = optuna.create_study(directions=['maximize', 'minimize', 'minimize'])
+        while tuning_trials > len(set(str(t.params) for t in study.trials)):
+            try:
+                study.optimize(lambda trial: objective_params_rf(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
+                study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + f'hypertuning{idx}.csv')
+                joblib.dump(study,cwd + f'{tuning_trials}hypertuningcluster{idx}.pkl')
+            except:
+                continue
+
+        completed_trials = [t for t in study.trials if t.values is not None]
+        completed_trials.sort(key=lambda trial: trial.values, reverse=True) # Sort trials based on objective values
+
+        # Select top 1 trials
+        params = completed_trials[0].params
+        best_params_list.append(params)
+
+        model = RandomForestRegressor(**params)
+        model.fit(X_train, y_train)    
+        joblib.dump(model,cwd + f'best_in_cluster_{idx}.pkl')
+    if saving==True:
+        with open(cwd + 'best_params_list.pkl', 'wb') as f:
+            pickle.dump(best_params_list, f)
+    return best_params_list
+
+def hyper_tuning_lstm(train_data, cwd, selected_columns_cluster, selected_columns_cluster_with_info, tuning_trials, saving=True):
+    best_params_list = []
+    for idx, data_item in enumerate(selected_columns_cluster):
+
+
+        info_train_cols, _ = split_data(selected_columns_cluster_with_info[idx])
+        train_cols, _ = split_data(data_item)
+
+        info_train_cols.set_index('Unnamed: 0', inplace=True)
+        info_train_cols.index.name = 'datetime'
+        info_train_cols.index = pd.to_datetime(info_train_cols.index)
+
+        X_train, X_valid, y_train, y_valid = train_test_split(train_cols,
+                                                                train_data['Return'],
+                                                                test_size=0.5,
+                                                                shuffle=False)
+        X_train=scale_data(X_train,X_train)
+        X_valid=scale_data(X_valid,X_train)
+        train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = train_test_split(info_train_cols,
+                                                                train_data['Return'],
+                                                                test_size=0.5,
+                                                                shuffle=False)
+        temp = train_data_X_train.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
+        temp=scale_data(temp,X_train)
+        train_data_X_train= pd.concat([train_data_X_train[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
+
+        temp = train_data_X_valid.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
+        temp=scale_data(temp,X_train)
+        train_data_X_valid= pd.concat([train_data_X_valid[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
+
+        study = optuna.create_study(directions=['maximize', 'minimize', 'minimize'])
+        while tuning_trials > len(set(str(t.params) for t in study.trials)):
+            try:
+                study.optimize(lambda trial: objective_params_lstm(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
+                study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + f'hypertuning{idx}.csv')
+                joblib.dump(study,cwd + f'{tuning_trials}hypertuningcluster{idx}.pkl')
+            except:
+                continue
+
+        completed_trials = [t for t in study.trials if t.values is not None]
+        completed_trials.sort(key=lambda trial: trial.values, reverse=True) # Sort trials based on objective values
+
+        # Select top 1 trials
+        params = completed_trials[0].params
+        best_params_list.append(params)
+        units1= params['units']
+        dropout1= params['dropout']
+        batch_size1 = params['batch_size']
+        epochs1= params['epochs']
+        early_stopping =EarlyStopping (monitor='val_loss', patience=5, restore_best_weights=True)
+        model = Sequential()
+
+        model.add(LSTM(units = units1, activation = 'relu', return_sequences=True
+
+                    ,input_shape = (X_train.shape[1], 1)))
+        model.add(Dropout(dropout1))
+        model.add(LSTM(units=units1))
+        model.add(Dense(1))
+        model.compile(optimizer = 'adam', loss = 'mean_squared_error', metrics=[tf.keras.metrics.MeanAbsoluteError()])
+        model.fit(
+            X_train, y_train,
+            validation_data=(X_valid, y_valid),
+            epochs=epochs1,
+            batch_size=batch_size1,
+            callbacks=[early_stopping],
+            verbose=0
+        )   
+        save_model(model,cwd +f'best_in_cluster_{idx}.keras')
+    if saving==True:
+        with open(cwd + 'best_params_list.pkl', 'wb') as f:
+            pickle.dump(best_params_list, f)
+    return best_params_list
+
+def hyper_tuning_cnn(train_data, cwd, selected_columns_cluster, selected_columns_cluster_with_info, tuning_trials, saving=True):
+    best_params_list = []
+    for idx, data_item in enumerate(selected_columns_cluster):
+
+
+        info_train_cols, _ = split_data(selected_columns_cluster_with_info[idx])
+        train_cols, _ = split_data(data_item)
+
+        info_train_cols.set_index('Unnamed: 0', inplace=True)
+        info_train_cols.index.name = 'datetime'
+        info_train_cols.index = pd.to_datetime(info_train_cols.index)
+
+        X_train, X_valid, y_train, y_valid = train_test_split(train_cols,
+                                                                train_data['Return'],
+                                                                test_size=0.5,
+                                                                shuffle=False)
+        X_train=scale_data(X_train,X_train)
+        X_valid=scale_data(X_valid,X_train)
+        train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = train_test_split(info_train_cols,
+                                                                train_data['Return'],
+                                                                test_size=0.5,
+                                                                shuffle=False)
+        temp = train_data_X_train.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
+        temp=scale_data(temp,X_train)
+        train_data_X_train= pd.concat([train_data_X_train[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
+
+        temp = train_data_X_valid.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
+        temp=scale_data(temp,X_train)
+        train_data_X_valid= pd.concat([train_data_X_valid[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
+
+        study = optuna.create_study(directions=['maximize', 'minimize', 'minimize'])
+        while tuning_trials > len(set(str(t.params) for t in study.trials)):
+            try:
+                study.optimize(lambda trial: objective_params_cnn(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
+                study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + f'hypertuning{idx}.csv')
+                joblib.dump(study,cwd + f'{tuning_trials}hypertuningcluster{idx}.pkl')
+            except:
+                continue
+
+        completed_trials = [t for t in study.trials if t.values is not None]
+        completed_trials.sort(key=lambda trial: trial.values, reverse=True) # Sort trials based on objective values
+
+        # Select top 1 trials
+        params = completed_trials[0].params
+        best_params_list.append(params)
+        filters1= params['filters']
+
+        dropout1= params['dropout']
+
+        batch_size1 = params['batch_size']
+
+        epochs1= params['epochs']
+        early_stopping =EarlyStopping (monitor='val_loss', patience=5, restore_best_weights=True)
+        model = Sequential()
+        # First convolutional block
+        model.add(Conv1D(filters=filters1, kernel_size=3, activation='relu', input_shape=(X_train.shape[1], 1)))
+        model.add(Dropout(dropout1))
+        # Second convolutional block
+        model.add(Conv1D(filters=filters1, kernel_size=3, activation='relu'))
+        model.add(MaxPooling1D(pool_size=1))
+        # Third convolutional block
+        model.add(Conv1D(filters=filters1, kernel_size=3, activation='relu'))
+        model.add(Flatten())
+        model.add(Dense(50, activation='relu'))
+        # Output layer for regression (no activation function for linear output)
+        model.add(Dense(1))
+        # Compile the model
+        model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+        model.fit(
+            X_train, y_train,
+            validation_data=(X_valid, y_valid),
+            epochs=epochs1,
+            batch_size=batch_size1,
+            callbacks=[early_stopping],
+            verbose=0
+        )
+        save_model(model,cwd +f'best_in_cluster_{idx}.keras')
+    if saving==True:
+        with open(cwd + 'best_params_list.pkl', 'wb') as f:
+            pickle.dump(best_params_list, f)
+    return best_params_list
+
+def hyper_tuning_cnn_lstm(train_data, cwd, selected_columns_cluster, selected_columns_cluster_with_info, tuning_trials, saving=True):
+    best_params_list = []
+    for idx, data_item in enumerate(selected_columns_cluster):
+
+
+        info_train_cols, _ = split_data(selected_columns_cluster_with_info[idx])
+        train_cols, _ = split_data(data_item)
+
+        info_train_cols.set_index('Unnamed: 0', inplace=True)
+        info_train_cols.index.name = 'datetime'
+        info_train_cols.index = pd.to_datetime(info_train_cols.index)
+
+        X_train, X_valid, y_train, y_valid = train_test_split(train_cols,
+                                                                train_data['Return'],
+                                                                test_size=0.5,
+                                                                shuffle=False)
+        X_train=scale_data(X_train,X_train)
+        X_valid=scale_data(X_valid,X_train)
+        train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = train_test_split(info_train_cols,
+                                                                train_data['Return'],
+                                                                test_size=0.5,
+                                                                shuffle=False)
+        temp = train_data_X_train.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
+        temp=scale_data(temp,X_train)
+        train_data_X_train= pd.concat([train_data_X_train[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
+
+        temp = train_data_X_valid.drop(['Open','High','Low','Close','Volume', 'Return'], axis=1)
+        temp=scale_data(temp,X_train)
+        train_data_X_valid= pd.concat([train_data_X_valid[[ 'Open','High','Low','Close','Volume', 'Return']], temp], axis=1)
+
+        study = optuna.create_study(directions=['maximize', 'minimize', 'minimize'])
+        while tuning_trials > len(set(str(t.params) for t in study.trials)):
+            try:
+                study.optimize(lambda trial: objective_params_cnn_lstm(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
+                study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + f'hypertuning{idx}.csv')
+                joblib.dump(study,cwd + f'{tuning_trials}hypertuningcluster{idx}.pkl')
+            except:
+                continue
+
+        completed_trials = [t for t in study.trials if t.values is not None]
+        completed_trials.sort(key=lambda trial: trial.values, reverse=True) # Sort trials based on objective values
+
+        # Select top 1 trials
+        params = completed_trials[0].params
+        best_params_list.append(params)
+        early_stopping =EarlyStopping (monitor='val_loss', patience=5, restore_best_weights=True)
+        filters1= params['filters1']
+        filters2= params['filters2']
+        filters3= params['filters3']
+        units= params['units']
+        dropout= params['dropout']
+        batch_size1 = params['batch_size']
+        epochs1= params['epochs']
+        input_shape = (X_train.shape[1], 1)
+        model = Sequential()
+        #add model layers
+        model.add(Conv1D(filters1, kernel_size=1, activation='relu', input_shape=input_shape))
+        model.add(MaxPooling1D(1))
+        model.add(Conv1D(filters2, kernel_size=1, activation='relu'))
+        model.add(MaxPooling1D(2))
+        model.add(Conv1D(filters=filters3, kernel_size=3, activation='relu'))
+        # model.add(Flatten())
+        model.add(LSTM(units,return_sequences=True))
+        model.add(Dropout(dropout))
+        model.add(LSTM(units,return_sequences=False))
+        model.add(Dropout(dropout))
+        model.add(Dense(1))
+        model.compile(optimizer='RMSprop', loss='mse')
+        model.fit(
+            X_train, y_train,
+            validation_data=(X_valid, y_valid),
+            epochs=epochs1,
+            batch_size=batch_size1,
+            callbacks=[early_stopping],
+            verbose=0
+        )
+        save_model(model,cwd +f'best_in_cluster_{idx}.keras')
+    if saving==True:
+        with open(cwd + 'best_params_list.pkl', 'wb') as f:
+            pickle.dump(best_params_list, f)
+    return best_params_list
+
+
 def test_and_save_xgb(data, cwd, top_10_features_per_cluster, selected_columns_cluster, best_params_list, drop_list):
     return_data = []
     sharpe_list = []
@@ -494,7 +1723,10 @@ def test_and_save_xgb(data, cwd, top_10_features_per_cluster, selected_columns_c
     train_data, hold_out = split_data(data)
 
     for idx, data_item in enumerate(selected_columns_cluster):
-        _, hold_out_cols = split_data(data_item)
+        train_cols, hold_out_cols = split_data(data_item)
+        # _, info_hold_out_cols= split_data(sorted_selected_columns_cluster_with_info[idx])
+    #     _, test_cols = split_data(data_item)
+        # optuna_data = scale_data(test_cols)
 
         temp= hold_out.drop(drop_list, axis=1)
         optuna_data = train_data.drop(drop_list, axis=1)
@@ -505,17 +1737,18 @@ def test_and_save_xgb(data, cwd, top_10_features_per_cluster, selected_columns_c
     #     info_optuna_data = scale_data(temp)
         temp=scale_data(temp,X_train)
         temp= pd.concat([hold_out[drop_list], temp], axis=1)
-        if 'Unnamed: 0' in drop_list:
-            temp.set_index('Unnamed: 0', inplace=True)
-            temp.index.name = 'datetime'
-        else:
-            temp.index.name = 'datetime'
+
+        temp.set_index('Unnamed: 0', inplace=True)
+        temp.index.name = 'datetime'
         temp.index = pd.to_datetime(temp.index)
         selected_features = hold_out_cols.columns
         test_data=temp
         model = xgb.XGBRegressor()
         # Create and train model
         model.load_model(cwd + f"best_in_cluster_{idx}.json")
+
+        # Make predictions
+        # hold_out_cols.columns = optuna_data.columns
 
         stats1= run_model_backtest( test_data,selected_features,model)
         print(stats1)
@@ -530,6 +1763,11 @@ def test_and_save_xgb(data, cwd, top_10_features_per_cluster, selected_columns_c
         feature.append(listToStr)
     print(feature)
 
+    feature=[]
+    for i in top_10_features_per_cluster:
+        listToStr = ' '.join([str(elem) for elem in i])
+        feature.append(listToStr)
+
     name=[]
     for i in range(len(selected_columns_cluster)):
         name.append( 'Cluster '+ str(i))
@@ -537,5 +1775,316 @@ def test_and_save_xgb(data, cwd, top_10_features_per_cluster, selected_columns_c
     dict = {'Top 10 Feature' : feature, 'Best params': best_params_list, 'Best sharpe':sharpe_list,"Return (Ann.) [%]": return_data,'Volatility':volatility}
     df_result = pd.DataFrame(dict)
     df_result.to_csv(cwd + 'xgb_result.csv')
+    return (df_result)
 
-    return df_result
+
+def test_and_save_lgbm(data, cwd, top_10_features_per_cluster, selected_columns_cluster, best_params_list, drop_list):
+    return_data = []
+    sharpe_list = []
+    volatility=[]
+    train_data, hold_out = split_data(data)
+
+    for idx, data_item in enumerate(selected_columns_cluster):
+        train_cols, hold_out_cols = split_data(data_item)
+        # _, info_hold_out_cols= split_data(sorted_selected_columns_cluster_with_info[idx])
+    #     _, test_cols = split_data(data_item)
+        # optuna_data = scale_data(test_cols)
+
+        temp= hold_out.drop(drop_list, axis=1)
+        optuna_data = train_data.drop(drop_list, axis=1)
+        X_train, X_valid, y_train, y_valid = train_test_split(optuna_data,
+                                                                train_data['Return'],
+                                                                test_size=0.5,
+                                                                shuffle=False)
+    #     info_optuna_data = scale_data(temp)
+        temp=scale_data(temp,X_train)
+        temp= pd.concat([hold_out[drop_list], temp], axis=1)
+
+        temp.set_index('Unnamed: 0', inplace=True)
+        temp.index.name = 'datetime'
+        temp.index = pd.to_datetime(temp.index)
+        selected_features = hold_out_cols.columns
+        test_data=temp
+        model = LGBMRegressor()
+        # Create and train model
+        
+        model= joblib.load(cwd +f'best_in_cluster_{idx}.pkl')
+        # Make predictions
+        # hold_out_cols.columns = optuna_data.columns
+
+        stats1= run_model_backtest( test_data,selected_features,model)
+        print(stats1)
+        return_data.append(stats1['Return (Ann.) [%]'])
+        sharpe_list.append(stats1['Sharpe Ratio'])
+        volatility.append(stats1['Volatility (Ann.) [%]'])
+
+    #Top 10 feature into list
+    feature=[]
+    for i in top_10_features_per_cluster:
+        listToStr = ' '.join([str(elem) for elem in i])
+        feature.append(listToStr)
+    print(feature)
+
+    feature=[]
+    for i in top_10_features_per_cluster:
+        listToStr = ' '.join([str(elem) for elem in i])
+        feature.append(listToStr)
+
+    name=[]
+    for i in range(len(selected_columns_cluster)):
+        name.append( 'Cluster '+ str(i))
+
+    dict = {'Top 10 Feature' : feature, 'Best params': best_params_list, 'Best sharpe':sharpe_list,"Return (Ann.) [%]": return_data,'Volatility':volatility}
+    df_result = pd.DataFrame(dict)
+    df_result.to_csv(cwd + 'lgbm_result.csv')
+    return (df_result)
+
+def test_and_save_rf(data, cwd, top_10_features_per_cluster, selected_columns_cluster, best_params_list, drop_list):
+    return_data = []
+    sharpe_list = []
+    volatility=[]
+    train_data, hold_out = split_data(data)
+
+    for idx, data_item in enumerate(selected_columns_cluster):
+        train_cols, hold_out_cols = split_data(data_item)
+        # _, info_hold_out_cols= split_data(sorted_selected_columns_cluster_with_info[idx])
+    #     _, test_cols = split_data(data_item)
+        # optuna_data = scale_data(test_cols)
+
+        temp= hold_out.drop(drop_list, axis=1)
+        optuna_data = train_data.drop(drop_list, axis=1)
+        X_train, X_valid, y_train, y_valid = train_test_split(optuna_data,
+                                                                train_data['Return'],
+                                                                test_size=0.5,
+                                                                shuffle=False)
+    #     info_optuna_data = scale_data(temp)
+        temp=scale_data(temp,X_train)
+        temp= pd.concat([hold_out[drop_list], temp], axis=1)
+
+        temp.set_index('Unnamed: 0', inplace=True)
+        temp.index.name = 'datetime'
+        temp.index = pd.to_datetime(temp.index)
+        selected_features = hold_out_cols.columns
+        test_data=temp
+        
+        # Create and train model
+        
+        model= joblib.load(cwd +f'best_in_cluster_{idx}.pkl')
+        # Make predictions
+        # hold_out_cols.columns = optuna_data.columns
+
+        stats1= run_model_backtest( test_data,selected_features,model)
+        print(stats1)
+        return_data.append(stats1['Return (Ann.) [%]'])
+        sharpe_list.append(stats1['Sharpe Ratio'])
+        volatility.append(stats1['Volatility (Ann.) [%]'])
+
+    #Top 10 feature into list
+    feature=[]
+    for i in top_10_features_per_cluster:
+        listToStr = ' '.join([str(elem) for elem in i])
+        feature.append(listToStr)
+    print(feature)
+
+    feature=[]
+    for i in top_10_features_per_cluster:
+        listToStr = ' '.join([str(elem) for elem in i])
+        feature.append(listToStr)
+
+    name=[]
+    for i in range(len(selected_columns_cluster)):
+        name.append( 'Cluster '+ str(i))
+
+    dict = {'Top 10 Feature' : feature, 'Best params': best_params_list, 'Best sharpe':sharpe_list,"Return (Ann.) [%]": return_data,'Volatility':volatility}
+    df_result = pd.DataFrame(dict)
+    df_result.to_csv(cwd + 'rf_result.csv')
+    return (df_result)
+
+def test_and_save_lstm(data, cwd, top_10_features_per_cluster, selected_columns_cluster, best_params_list, drop_list):
+    return_data = []
+    sharpe_list = []
+    volatility=[]
+    train_data, hold_out = split_data(data)
+
+    for idx, data_item in enumerate(selected_columns_cluster):
+        train_cols, hold_out_cols = split_data(data_item)
+        # _, info_hold_out_cols= split_data(sorted_selected_columns_cluster_with_info[idx])
+    #     _, test_cols = split_data(data_item)
+        # optuna_data = scale_data(test_cols)
+
+        temp= hold_out.drop(drop_list, axis=1)
+        optuna_data = train_data.drop(drop_list, axis=1)
+        X_train, X_valid, y_train, y_valid = train_test_split(optuna_data,
+                                                                train_data['Return'],
+                                                                test_size=0.5,
+                                                                shuffle=False)
+    #     info_optuna_data = scale_data(temp)
+        temp=scale_data(temp,X_train)
+        temp= pd.concat([hold_out[drop_list], temp], axis=1)
+
+        temp.set_index('Unnamed: 0', inplace=True)
+        temp.index.name = 'datetime'
+        temp.index = pd.to_datetime(temp.index)
+        selected_features = hold_out_cols.columns
+        test_data=temp
+        
+        # Create and train model
+        
+        
+        model = load_model(cwd +f"best_in_cluster_{idx}.keras", compile=False)
+        model.compile(optimizer = 'adam', loss = 'mean_squared_error', metrics=[tf.keras.metrics.MeanAbsoluteError()])
+        # Make predictions
+        # hold_out_cols.columns = optuna_data.columns
+
+        stats1= run_model_backtest( test_data,selected_features,model)
+        print(stats1)
+        return_data.append(stats1['Return (Ann.) [%]'])
+        sharpe_list.append(stats1['Sharpe Ratio'])
+        volatility.append(stats1['Volatility (Ann.) [%]'])
+
+    #Top 10 feature into list
+    feature=[]
+    for i in top_10_features_per_cluster:
+        listToStr = ' '.join([str(elem) for elem in i])
+        feature.append(listToStr)
+    print(feature)
+
+    feature=[]
+    for i in top_10_features_per_cluster:
+        listToStr = ' '.join([str(elem) for elem in i])
+        feature.append(listToStr)
+
+    name=[]
+    for i in range(len(selected_columns_cluster)):
+        name.append( 'Cluster '+ str(i))
+
+    dict = {'Top 10 Feature' : feature, 'Best params': best_params_list, 'Best sharpe':sharpe_list,"Return (Ann.) [%]": return_data,'Volatility':volatility}
+    df_result = pd.DataFrame(dict)
+    df_result.to_csv(cwd + 'lstm_result.csv')
+    return (df_result)
+
+def test_and_save_cnn(data, cwd, top_10_features_per_cluster, selected_columns_cluster, best_params_list, drop_list):
+    return_data = []
+    sharpe_list = []
+    volatility=[]
+    train_data, hold_out = split_data(data)
+
+    for idx, data_item in enumerate(selected_columns_cluster):
+        train_cols, hold_out_cols = split_data(data_item)
+        # _, info_hold_out_cols= split_data(sorted_selected_columns_cluster_with_info[idx])
+    #     _, test_cols = split_data(data_item)
+        # optuna_data = scale_data(test_cols)
+
+        temp= hold_out.drop(drop_list, axis=1)
+        optuna_data = train_data.drop(drop_list, axis=1)
+        X_train, X_valid, y_train, y_valid = train_test_split(optuna_data,
+                                                                train_data['Return'],
+                                                                test_size=0.5,
+                                                                shuffle=False)
+    #     info_optuna_data = scale_data(temp)
+        temp=scale_data(temp,X_train)
+        temp= pd.concat([hold_out[drop_list], temp], axis=1)
+
+        temp.set_index('Unnamed: 0', inplace=True)
+        temp.index.name = 'datetime'
+        temp.index = pd.to_datetime(temp.index)
+        selected_features = hold_out_cols.columns
+        test_data=temp
+        
+        # Create and train model
+        
+        
+        model = load_model(cwd +f"best_in_cluster_{idx}.keras", compile=False)
+        model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+        # Make predictions
+        # hold_out_cols.columns = optuna_data.columns
+
+        stats1= run_model_backtest( test_data,selected_features,model)
+        print(stats1)
+        return_data.append(stats1['Return (Ann.) [%]'])
+        sharpe_list.append(stats1['Sharpe Ratio'])
+        volatility.append(stats1['Volatility (Ann.) [%]'])
+
+    #Top 10 feature into list
+    feature=[]
+    for i in top_10_features_per_cluster:
+        listToStr = ' '.join([str(elem) for elem in i])
+        feature.append(listToStr)
+    print(feature)
+
+    feature=[]
+    for i in top_10_features_per_cluster:
+        listToStr = ' '.join([str(elem) for elem in i])
+        feature.append(listToStr)
+
+    name=[]
+    for i in range(len(selected_columns_cluster)):
+        name.append( 'Cluster '+ str(i))
+
+    dict = {'Top 10 Feature' : feature, 'Best params': best_params_list, 'Best sharpe':sharpe_list,"Return (Ann.) [%]": return_data,'Volatility':volatility}
+    df_result = pd.DataFrame(dict)
+    df_result.to_csv(cwd + 'cnn_result.csv')
+    return (df_result)
+
+def test_and_save_cnn_lstm(data, cwd, top_10_features_per_cluster, selected_columns_cluster, best_params_list, drop_list):
+    return_data = []
+    sharpe_list = []
+    volatility=[]
+    train_data, hold_out = split_data(data)
+
+    for idx, data_item in enumerate(selected_columns_cluster):
+        train_cols, hold_out_cols = split_data(data_item)
+        # _, info_hold_out_cols= split_data(sorted_selected_columns_cluster_with_info[idx])
+    #     _, test_cols = split_data(data_item)
+        # optuna_data = scale_data(test_cols)
+
+        temp= hold_out.drop(drop_list, axis=1)
+        optuna_data = train_data.drop(drop_list, axis=1)
+        X_train, X_valid, y_train, y_valid = train_test_split(optuna_data,
+                                                                train_data['Return'],
+                                                                test_size=0.5,
+                                                                shuffle=False)
+    #     info_optuna_data = scale_data(temp)
+        temp=scale_data(temp,X_train)
+        temp= pd.concat([hold_out[drop_list], temp], axis=1)
+
+        temp.set_index('Unnamed: 0', inplace=True)
+        temp.index.name = 'datetime'
+        temp.index = pd.to_datetime(temp.index)
+        selected_features = hold_out_cols.columns
+        test_data=temp
+        
+        # Create and train model
+        
+        
+        model = load_model(cwd +f"best_in_cluster_{idx}.keras", compile=False)
+        model.compile(optimizer='adam', loss='mse', metrics=['mae'])
+        # Make predictions
+        # hold_out_cols.columns = optuna_data.columns
+
+        stats1= run_model_backtest( test_data,selected_features,model)
+        print(stats1)
+        return_data.append(stats1['Return (Ann.) [%]'])
+        sharpe_list.append(stats1['Sharpe Ratio'])
+        volatility.append(stats1['Volatility (Ann.) [%]'])
+
+    #Top 10 feature into list
+    feature=[]
+    for i in top_10_features_per_cluster:
+        listToStr = ' '.join([str(elem) for elem in i])
+        feature.append(listToStr)
+    print(feature)
+
+    feature=[]
+    for i in top_10_features_per_cluster:
+        listToStr = ' '.join([str(elem) for elem in i])
+        feature.append(listToStr)
+
+    name=[]
+    for i in range(len(selected_columns_cluster)):
+        name.append( 'Cluster '+ str(i))
+
+    dict = {'Top 10 Feature' : feature, 'Best params': best_params_list, 'Best sharpe':sharpe_list,"Return (Ann.) [%]": return_data,'Volatility':volatility}
+    df_result = pd.DataFrame(dict)
+    df_result.to_csv(cwd + 'cnn_lstm_result.csv')
+    return (df_result)
