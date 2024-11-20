@@ -1750,7 +1750,7 @@ def test_and_save_xgb(data, cwd, top_10_features_per_cluster, selected_columns_c
         # Make predictions
         # hold_out_cols.columns = optuna_data.columns
 
-        stats1= run_model_backtest( test_data,selected_features,model)
+        stats1= run_model_backtest(test_data,selected_features,model)
         print(stats1)
         return_data.append(stats1['Return (Ann.) [%]'])
         sharpe_list.append(stats1['Sharpe Ratio'])
