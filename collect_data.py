@@ -95,19 +95,30 @@ def main():
         last_time_feat, _ = get_latest_time_feat(db_feat[i], user, password, host, port, dbname, schema)
 
         limit = get_row_difference(last_time_feat, user, password, host, port, dbname, schema, db_data[i])
+        if limit ==0 :
+            continue
         old_df = read_from_postgresql_limit(db_feat[i], user, password, host, port, dbname, schema, 1)
         ohclv_data = read_from_postgresql_limit(db_data[i], user, password, host, port, dbname, schema, limit + 50)
-        print(limit)
+    
         old_columns = [col for col in old_df.columns if col != 'Unnamed: 0']
         new_df = add_feature(ohclv_data, params, financial_statements, type[i])
         new_df=new_df[old_columns][-limit:]
         new_df.to_csv(f'newdf_{type[i]}.csv')
-      
-        new_df['Unnamed: 0'] = pd.to_datetime(new_df['Date'].astype(str) + ' ' + new_df['time'].astype(str))
+
+        new_df['Unnamed: 0'] = new_df['Date']
         try:
+            
             append_to_postgresql(new_df, db_feat[i], user, password, host, port, dbname)
         except:
             pass
 
 if __name__ == '__main__':
+   
     main()
+# now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+# get_data(None,str(now))
+
+
+
+    
+    
