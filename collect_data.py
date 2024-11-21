@@ -55,7 +55,7 @@ def main():
     port = '5432' 
     dbname = 'postgres'
     user = 'postgres'
-    password = '123'
+    password = 'postgres'
     schema = 'public'
     db_data = ['vn30f1m_min', 'vn30f1m_hour', 'vn30f1m_day']
     db_feat = ['vn30f1m_min_feat', 'vn30f1m_hour_feat', 'vn30f1m_day_feat']
