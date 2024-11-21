@@ -1,10 +1,6 @@
-import os 
-import pickle
 import json
 import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta, timezone
-#from utils.optimize import test_and_save_xgb
 from utils.dbtool import read_from_postgresql_limit, read_feat_from_postgresql_limit, save_to_postgresql, append_to_postgresql, check_database_exists, get_row_difference
 from data.data_utils import get_vn30f, add_features, add_finance_features
 
@@ -106,7 +102,7 @@ def main():
         new_df = add_feature(ohclv_data, params, financial_statements, type[i])
         new_df=new_df[old_columns][-limit:]
         new_df.to_csv(f'newdf_{type[i]}.csv')
-        if new_df:
+        if new_df is not None and not new_df.empty:
             append_to_postgresql(new_data[-limit:], db_feat[i], user, password, host, port, dbname)
 
 if __name__ == '__main__':
