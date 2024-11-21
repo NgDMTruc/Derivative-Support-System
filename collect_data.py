@@ -55,7 +55,7 @@ def main():
     port = '5432' 
     dbname = 'postgres'
     user = 'postgres'
-    password = 'postgres'
+    password = '123'
     schema = 'public'
     db_data = ['vn30f1m_min', 'vn30f1m_hour', 'vn30f1m_day']
     db_feat = ['vn30f1m_min_feat', 'vn30f1m_hour_feat', 'vn30f1m_day_feat']
@@ -102,15 +102,12 @@ def main():
         new_df = add_feature(ohclv_data, params, financial_statements, type[i])
         new_df=new_df[old_columns][-limit:]
         new_df.to_csv(f'newdf_{type[i]}.csv')
+      
+        new_df['Unnamed: 0'] = pd.to_datetime(new_df['Date'].astype(str) + ' ' + new_df['time'].astype(str))
         try:
-            append_to_postgresql(new_data[-limit:], db_feat[i], user, password, host, port, dbname)
+            append_to_postgresql(new_df, db_feat[i], user, password, host, port, dbname)
         except:
             pass
 
 if __name__ == '__main__':
     main()
-
-
-
-
-    
