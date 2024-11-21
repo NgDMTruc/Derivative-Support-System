@@ -22,6 +22,7 @@ from tensorflow.keras.models import save_model, load_model
 sys.path.append(os.path.abspath('../')) # Thêm đường dẫn của thư mục Capstone vào sys.path
 from xgboost import callback
 from Capstone.utils.backtest import run_model_backtest
+from Capstone.utils.backtest_DL import run_model_backtest_dl
 from Capstone.data.data_utils import split_optuna_data, scale_data, split_data, train_test_split
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_samples, silhouette_score
@@ -370,8 +371,8 @@ def objective_lstm(trial, X_train, X_valid, y_train, y_valid, y_price, train_dat
     model.add(Dense(1))  # Assuming this output is suitable for the prediction targets
     model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_absolute_error'])
     model.fit(X_train_selected, y_train, epochs=5, batch_size=32, validation_data=(X_valid, y_valid), verbose=0)
-    stats= run_model_backtest( train_data_X_train,selected_features,model)
-    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    stats= run_model_backtest_dl( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest_dl(  train_data_X_valid,selected_features,model)
     ret=stats['Return (Ann.) [%]']
     volatility=stats['Volatility (Ann.) [%]']
     ret1=stats1['Return (Ann.) [%]']
@@ -447,8 +448,8 @@ def objective_cnn(trial, X_train, X_valid, y_train, y_valid, y_price, train_data
     input_shape = (X_train_selected.shape[1], 1)
     model = create_custom_cnn(input_shape)
     model.fit( X_train_selected , y_train, epochs=5, batch_size=32, validation_data=(X_valid_selected, y_valid), verbose=0)
-    stats= run_model_backtest( train_data_X_train,selected_features,model)
-    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    stats= run_model_backtest_dl( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest_dl(  train_data_X_valid,selected_features,model)
     ret=stats['Return (Ann.) [%]']
     volatility=stats['Volatility (Ann.) [%]']
     ret1=stats1['Return (Ann.) [%]']
@@ -539,8 +540,8 @@ def objective_cnn_lstm(trial, X_train, X_valid, y_train, y_valid, y_price, train
     model.add(Dense(1))
     model.compile(optimizer='RMSprop', loss='mse')
     model.fit( X_train_selected , y_train, epochs=10, batch_size=32, validation_data=(X_valid_selected, y_valid), verbose=0)
-    stats= run_model_backtest( train_data_X_train,selected_features,model)
-    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    stats= run_model_backtest_dl( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest_dl(  train_data_X_valid,selected_features,model)
     ret=stats['Return (Ann.) [%]']
     volatility=stats['Volatility (Ann.) [%]']
     ret1=stats1['Return (Ann.) [%]']
@@ -1145,8 +1146,8 @@ def objective_params_lstm(trial, X_train, X_valid, y_train, y_valid, y_close, tr
         verbose=0
     )
     # train_data_X_valid=backtest_data(train_data_X_valid)
-    stats= run_model_backtest( train_data_X_train,selected_features,model)
-    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    stats= run_model_backtest_dl( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest_dl(  train_data_X_valid,selected_features,model)
     ret=stats['Return (Ann.) [%]']
 
     volatility=stats['Volatility (Ann.) [%]']
@@ -1207,8 +1208,8 @@ def objective_params_cnn(trial, X_train, X_valid, y_train, y_valid, y_close, tra
         verbose=0
     )
     # train_data_X_valid=backtest_data(train_data_X_valid)
-    stats= run_model_backtest( train_data_X_train,selected_features,model)
-    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    stats= run_model_backtest_dl( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest_dl(  train_data_X_valid,selected_features,model)
     ret=stats['Return (Ann.) [%]']
 
     volatility=stats['Volatility (Ann.) [%]']
@@ -1271,8 +1272,8 @@ def objective_params_cnn_lstm(trial, X_train, X_valid, y_train, y_valid, y_close
         verbose=0
     )
     # train_data_X_valid=backtest_data(train_data_X_valid)
-    stats= run_model_backtest( train_data_X_train,selected_features,model)
-    stats1= run_model_backtest(  train_data_X_valid,selected_features,model)
+    stats= run_model_backtest_dl( train_data_X_train,selected_features,model)
+    stats1= run_model_backtest_dl(  train_data_X_valid,selected_features,model)
     ret=stats['Return (Ann.) [%]']
 
     volatility=stats['Volatility (Ann.) [%]']
@@ -1348,7 +1349,7 @@ def hyper_tuning_xgb(train_data, cwd, selected_columns_cluster, selected_columns
             try:
                 study.optimize(lambda trial: objective_params_xgb(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
                 study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + f'hypertuning{idx}.csv')
-                joblib.dump(study,cwd + f'{tuning_trials}hypertuningcluster{idx}.pkl')
+                joblib.dump(study,cwd + f'hypertuningcluster{idx}.pkl')
             except:
                 continue
 
@@ -1405,7 +1406,7 @@ def hyper_tuning_lgbm(train_data, cwd, selected_columns_cluster, selected_column
             try:
                 study.optimize(lambda trial: objective_params_lgbm(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
                 study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + f'hypertuning{idx}.csv')
-                joblib.dump(study,cwd + f'{tuning_trials}hypertuningcluster{idx}.pkl')
+                joblib.dump(study,cwd + f'hypertuningcluster{idx}.pkl')
             except:
                 continue
 
@@ -1459,7 +1460,7 @@ def hyper_tuning_rf(train_data, cwd, selected_columns_cluster, selected_columns_
             try:
                 study.optimize(lambda trial: objective_params_rf(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
                 study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + f'hypertuning{idx}.csv')
-                joblib.dump(study,cwd + f'{tuning_trials}hypertuningcluster{idx}.pkl')
+                joblib.dump(study,cwd + f'hypertuningcluster{idx}.pkl')
             except:
                 continue
 
@@ -1513,7 +1514,7 @@ def hyper_tuning_lstm(train_data, cwd, selected_columns_cluster, selected_column
             try:
                 study.optimize(lambda trial: objective_params_lstm(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
                 study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + f'hypertuning{idx}.csv')
-                joblib.dump(study,cwd + f'{tuning_trials}hypertuningcluster{idx}.pkl')
+                joblib.dump(study,cwd + f'hypertuningcluster{idx}.pkl')
             except:
                 continue
 
@@ -1586,7 +1587,7 @@ def hyper_tuning_cnn(train_data, cwd, selected_columns_cluster, selected_columns
             try:
                 study.optimize(lambda trial: objective_params_cnn(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
                 study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + f'hypertuning{idx}.csv')
-                joblib.dump(study,cwd + f'{tuning_trials}hypertuningcluster{idx}.pkl')
+                joblib.dump(study,cwd + f'hypertuningcluster{idx}.pkl')
             except:
                 continue
 
@@ -1668,7 +1669,7 @@ def hyper_tuning_cnn_lstm(train_data, cwd, selected_columns_cluster, selected_co
             try:
                 study.optimize(lambda trial: objective_params_cnn_lstm(trial, X_train, X_valid, y_train, y_valid, train_data['Close'], train_data_X_train, train_data_X_valid), n_trials=1)
                 study.trials_dataframe().fillna(0).sort_values('values_0').to_csv(cwd + f'hypertuning{idx}.csv')
-                joblib.dump(study,cwd + f'{tuning_trials}hypertuningcluster{idx}.pkl')
+                joblib.dump(study,cwd + f'hypertuningcluster{idx}.pkl')
             except:
                 continue
 
@@ -1750,7 +1751,7 @@ def test_and_save_xgb(data, cwd, top_10_features_per_cluster, selected_columns_c
         # Make predictions
         # hold_out_cols.columns = optuna_data.columns
 
-        stats1= run_model_backtest(test_data,selected_features,model)
+        stats1= run_model_backtest( test_data,selected_features,model)
         print(stats1)
         return_data.append(stats1['Return (Ann.) [%]'])
         sharpe_list.append(stats1['Sharpe Ratio'])
@@ -1786,17 +1787,14 @@ def test_and_save_lgbm(data, cwd, top_10_features_per_cluster, selected_columns_
 
     for idx, data_item in enumerate(selected_columns_cluster):
         train_cols, hold_out_cols = split_data(data_item)
-        # _, info_hold_out_cols= split_data(sorted_selected_columns_cluster_with_info[idx])
-    #     _, test_cols = split_data(data_item)
-        # optuna_data = scale_data(test_cols)
-
+       
         temp= hold_out.drop(drop_list, axis=1)
         optuna_data = train_data.drop(drop_list, axis=1)
         X_train, X_valid, y_train, y_valid = train_test_split(optuna_data,
                                                                 train_data['Return'],
                                                                 test_size=0.5,
                                                                 shuffle=False)
-    #     info_optuna_data = scale_data(temp)
+    
         temp=scale_data(temp,X_train)
         temp= pd.concat([hold_out[drop_list], temp], axis=1)
 
@@ -1936,7 +1934,7 @@ def test_and_save_lstm(data, cwd, top_10_features_per_cluster, selected_columns_
         # Make predictions
         # hold_out_cols.columns = optuna_data.columns
 
-        stats1= run_model_backtest( test_data,selected_features,model)
+        stats1= run_model_backtest_dl( test_data,selected_features,model)
         print(stats1)
         return_data.append(stats1['Return (Ann.) [%]'])
         sharpe_list.append(stats1['Sharpe Ratio'])
@@ -1999,7 +1997,7 @@ def test_and_save_cnn(data, cwd, top_10_features_per_cluster, selected_columns_c
         # Make predictions
         # hold_out_cols.columns = optuna_data.columns
 
-        stats1= run_model_backtest( test_data,selected_features,model)
+        stats1= run_model_backtest_dl( test_data,selected_features,model)
         print(stats1)
         return_data.append(stats1['Return (Ann.) [%]'])
         sharpe_list.append(stats1['Sharpe Ratio'])
@@ -2062,7 +2060,7 @@ def test_and_save_cnn_lstm(data, cwd, top_10_features_per_cluster, selected_colu
         # Make predictions
         # hold_out_cols.columns = optuna_data.columns
 
-        stats1= run_model_backtest( test_data,selected_features,model)
+        stats1= run_model_backtest_dl( test_data,selected_features,model)
         print(stats1)
         return_data.append(stats1['Return (Ann.) [%]'])
         sharpe_list.append(stats1['Sharpe Ratio'])
