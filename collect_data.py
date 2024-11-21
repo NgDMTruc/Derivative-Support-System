@@ -102,8 +102,10 @@ def main():
         new_df = add_feature(ohclv_data, params, financial_statements, type[i])
         new_df=new_df[old_columns][-limit:]
         new_df.to_csv(f'newdf_{type[i]}.csv')
-        if new_df is not None and not new_df.empty:
+        try:
             append_to_postgresql(new_data[-limit:], db_feat[i], user, password, host, port, dbname)
+        except:
+            pass
 
 if __name__ == '__main__':
     main()
