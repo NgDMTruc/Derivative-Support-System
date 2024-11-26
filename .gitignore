@@ -1,1 +1,5 @@
 *.csv
+*.json
+*.pkl
+*.png
+*.zip
