@@ -15,6 +15,8 @@ from collect_data import main as collect_main
 from utils.dbtool import read_from_postgresql_limit, read_feat_from_postgresql_limit, save_to_postgresql, append_to_postgresql, check_database_exists, get_row_difference
 
 exec(open('collect_data_2.py').read())
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'
+exec(open('collect_data.py').read())
 
 # Base directory containing models and data
 os_dir = "Capstone"
@@ -60,7 +62,6 @@ timepath = {
 }
 
 # Select cluster
-# Select cluster
 if selected_model == 'XGB':
     if selected_timeframe == '1 hour':
         clusters = [f"cluster_3"]
@@ -78,7 +79,7 @@ elif selected_model == 'Random Forest':
         clusters = [f"cluster_2"]
     else:
         clusters = [f"cluster_0"]
-        
+
 if selected_model and selected_timeframe:
     selected_cluster = st.selectbox("Select Cluster", clusters)
 
@@ -140,7 +141,7 @@ backtesting_data['Unnamed: 0'] = pd.to_datetime(backtesting_data['Date'] + ' ' +
 backtesting_data = backtesting_data[backtesting_data['Unnamed: 0'] > last_date_train]
 
 # Fetch test data from PostgreSQL
-test_data = read_feat_from_postgresql_limit(f'vn30f1m_{timepath[selected_timeframe]}_feat', user, password, host, port, dbname, schema, 10)
+test_data = read_feat_from_postgresql_limit(f'vn30f1m_{timepath[selected_timeframe]}_feat', user, password, host, port, dbname, schema, 11)
 test_data['Unnamed: 0'] = pd.to_datetime(test_data['Date'] + ' ' + test_data['time'])
 hold_out = test_data.copy()
 
@@ -214,13 +215,26 @@ best_tunning_trial=tunning[-1:]
 sharpe_train=best_tunning_trial['values_0'].values/best_tunning_trial['values_1'].values
 sharpe_train=sharpe_train[0]
 sharpe_train
+
 GS.append(float(abs((sharpe_test / sharpe_train)-1)))
 pred = model.predict(temp[selected_features])
+
 last_10_predictions = pd.DataFrame({
-    'Time': test_data['Unnamed: 0'][-10:],
-    'Actual Return': test_data['Return'][-10:],
-    "Model Prediction's Return": pred[-10:],
+    'Time': test_data['Unnamed: 0'][-10:].reset_index(drop=True),
+    'Close Price':test_data['Close'][-10:].reset_index(drop=True),
+    "Model Prediction's Close Price": (((pred*test_data['Close'])+test_data['Close'])[:10]),
+    'Actual Return': test_data['Return'].shift(1)[-10:].reset_index(drop=True),
+    "Model Prediction's Return": pred[:10],
 })
+
+new_row =  pd.DataFrame({
+    'Time': "Next Trading Section",
+    'Close Price': "Unknown",  
+    "Model Prediction's Close Price": (((pred*test_data['Close'])+test_data['Close'])[-1:]),
+    'Actual Return':"Unknown",
+    "Model Prediction's Return": pred[-1:],
+})
+last_10_predictions=pd.concat([last_10_predictions, new_row], ignore_index=True)
 current_metrics=pd.DataFrame({
     'Sharpe':sharpe_list,
 "Return (Ann.) [%]": return_data,
@@ -248,8 +262,8 @@ last_10_predictions["Recommended Next Step"] = last_10_predictions.apply(
 
 st.title("Actual vs Predicted Return")
 fig, ax = plt.subplots(figsize=(12, 6))
-ax.plot(hold_out['Unnamed: 0'], test_data['Return'][-10:], label='Actual Return', color='gray', linewidth=2)
-ax.plot(hold_out['Unnamed: 0'], pred, label='Model Prediction', linewidth=2)
+ax.plot(hold_out['Unnamed: 0'][-10:], test_data['Return'][-10:], label='Actual Return', color='gray', linewidth=2)
+ax.plot(hold_out['Unnamed: 0'][-10:], pred[-10:], label='Model Prediction', linewidth=2)
 ax.set_title(f'Actual vs Predicted Return For the last 10 times')
 ax.set_xlabel('Date')
 ax.set_ylabel('Return')
@@ -260,6 +274,8 @@ st.pyplot(fig)
 st.write(last_10_predictions)
 st.write("Lstest metrics of the model since test data to present")
 st.write(current_metrics)
+
+
 
 row = current_metrics.iloc[0].to_dict()
 
