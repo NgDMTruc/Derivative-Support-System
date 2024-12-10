@@ -140,10 +140,10 @@ def objective_xgb(trial, X_train, X_valid, y_train, y_valid, y_price, train_data
     # Save trade value in the trial object for later access
     trial.set_user_attr('trade', trade)
     try:
-        gs= (abs((abs(sharpe / sharpe1))-1))
+        gs= abs((sharpe / sharpe1)-1)
     except:
         gs=0
-    return ret,volatility,gs
+    return ret1,volatility1,gs
 
 def feature_select_xgb(data, cwd, new_df_no_close_col, feat_trials):
     X_train, X_valid, y_train, y_valid, train_data, train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = split_optuna_data(data)
@@ -219,10 +219,10 @@ def objective_lgbm(trial, X_train, X_valid, y_train, y_valid, y_price, train_dat
     # Save trade value in the trial object for later access
     trial.set_user_attr('trade', trade)
     try:
-        gs= (abs((abs(sharpe / sharpe1))-1))
+        gs= abs((sharpe / sharpe1)-1)
     except:
         gs=0
-    return ret,volatility,gs
+    return ret1,volatility1,gs
 
 def feature_select_lgbm(data, cwd, new_df_no_close_col, feat_trials):
     X_train, X_valid, y_train, y_valid, train_data, train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = split_optuna_data(data)
@@ -305,10 +305,10 @@ def objective_rf(trial, X_train, X_valid, y_train, y_valid, y_price, train_data_
 
     trial.set_user_attr('trade', trade)
     try:
-        gs= (abs((abs(sharpe / sharpe1))-1))
+        gs= abs((sharpe / sharpe1)-1)
     except:
         gs=0
-    return ret,volatility,gs
+    return ret1,volatility1,gs
 
 def feature_select_rf(data, cwd, new_df_no_close_col, feat_trials):
     X_train, X_valid, y_train, y_valid, train_data, train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = split_optuna_data(data)
@@ -385,10 +385,10 @@ def objective_lstm(trial, X_train, X_valid, y_train, y_valid, y_price, train_dat
     # Save trade value in the trial object for later access
     trial.set_user_attr('trade', trade)
     try:
-        gs= (abs((abs(sharpe / sharpe1))-1))
+        gs= abs((sharpe / sharpe1)-1)
     except:
         gs=0
-    return ret,volatility,gs
+    return ret1,volatility1,gs
 
 def feature_select_lstm(data, cwd, new_df_no_close_col, feat_trials):
     X_train, X_valid, y_train, y_valid, train_data, train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = split_optuna_data(data)
@@ -462,10 +462,10 @@ def objective_cnn(trial, X_train, X_valid, y_train, y_valid, y_price, train_data
     # Save trade value in the trial object for later access
     trial.set_user_attr('trade', trade)
     try:
-        gs= (abs((abs(sharpe / sharpe1))-1))
+        gs= abs((sharpe / sharpe1)-1)
     except:
         gs=0
-    return ret,volatility,gs
+    return ret1,volatility1,gs
 
 def feature_select_cnn(data, cwd, new_df_no_close_col, feat_trials):
     X_train, X_valid, y_train, y_valid, train_data, train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = split_optuna_data(data)
@@ -554,10 +554,10 @@ def objective_cnn_lstm(trial, X_train, X_valid, y_train, y_valid, y_price, train
     # Save trade value in the trial object for later access
     trial.set_user_attr('trade', trade)
     try:
-        gs= (abs((abs(sharpe / sharpe1))-1))
+        gs= abs((sharpe / sharpe1)-1)
     except:
         gs=0
-    return ret,volatility,gs
+    return ret1,volatility1,gs
 
 def feature_select_cnn_lstm(data, cwd, new_df_no_close_col, feat_trials):
     X_train, X_valid, y_train, y_valid, train_data, train_data_X_train, train_data_X_valid, train_data_y_train, train_data_y_valid = split_optuna_data(data)
@@ -593,86 +593,128 @@ def feature_select_cnn_lstm(data, cwd, new_df_no_close_col, feat_trials):
 #----------------------------------------------- ONC----------------------------------------------------
 def retrieve_top_pnl_xgb(data, top_features_list, drop_list):
     top_pnl = []
+
+
     for best_selected_features in top_features_list:
 
-        new_df_selected = data[drop_list+best_selected_features]
+        new_df_selected = data[[ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0']+best_selected_features]
         train_select_col_data, _ = split_data(new_df_selected)
 
-        retrain_data = train_select_col_data.drop(drop_list, axis=1)
+        retrain_data = train_select_col_data.drop([ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0'], axis=1)
+
+    #     retrain_data = scale_data(retrain_data)
 
         X_train, X_valid, y_train, y_valid = train_test_split(retrain_data,
                                                         train_select_col_data['Return'],
                                                         test_size=0.5,shuffle=False)
+        _, X_valid_data, _, _ = train_test_split(train_select_col_data,
+                                                        train_select_col_data['Return'],
+                                                        test_size=0.5,shuffle=False)
         X_train=scale_data(X_train,X_train)
         X_valid=scale_data(X_valid,X_train)
+        temp= X_valid.copy()
+        temp= pd.concat([X_valid_data[[ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0']], temp], axis=1)
+        temp.set_index('Unnamed: 0', inplace=True)
+        
+        temp.index.name = 'datetime'
+        temp.index = pd.to_datetime(temp.index)
+
         # Create and train model
         model = xgb.XGBRegressor()
         model.fit(X_train, y_train)
-        trade_threshold = 0
+    
         # Make predictions
-        y_pred_valid = model.predict(X_valid)
-        _, pnl_valid, _, _ = sharpe_for_vn30f(y_pred_valid, y_valid, trade_threshold=trade_threshold, fee_perc=0.01, periods=10)
-        pnl_valid_no_nan = np.nan_to_num(pnl_valid, nan=0)
-        top_pnl.append(pnl_valid_no_nan)
-        # pnl = pd.DataFrame(top_pnl)
-        # pnl = pnl.transpose()
+        stats= run_model_backtest( temp,best_selected_features,model)
+        pnl_valid=stats['_equity_curve']['Equity'].values
+        
+        
+        top_pnl.append(pnl_valid)
     return top_pnl
 
 def retrieve_top_pnl_lgbm(data, top_features_list, drop_list):
     top_pnl = []
+
     for best_selected_features in top_features_list:
 
-        new_df_selected = data[drop_list+best_selected_features]
+        new_df_selected = data[[ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0']+best_selected_features]
         train_select_col_data, _ = split_data(new_df_selected)
 
-        retrain_data = train_select_col_data.drop(drop_list, axis=1)
+        retrain_data = train_select_col_data.drop([ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0'], axis=1)
+
+    #     retrain_data = scale_data(retrain_data)
 
         X_train, X_valid, y_train, y_valid = train_test_split(retrain_data,
                                                         train_select_col_data['Return'],
                                                         test_size=0.5,shuffle=False)
+        _, X_valid_data, _, _ = train_test_split(train_select_col_data,
+                                                        train_select_col_data['Return'],
+                                                        test_size=0.5,shuffle=False)
         X_train=scale_data(X_train,X_train)
         X_valid=scale_data(X_valid,X_train)
+        temp= X_valid.copy()
+        temp= pd.concat([X_valid_data[[ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0']], temp], axis=1)
+        temp.set_index('Unnamed: 0', inplace=True)
+        
+        temp.index.name = 'datetime'
+        temp.index = pd.to_datetime(temp.index)
+
         # Create and train model
+
         model = LGBMRegressor()
+
         model.fit(X_train, y_train)
+
         trade_threshold = 0
+
         # Make predictions
-        y_pred_valid = model.predict(X_valid)
-        _, pnl_valid, _, _ = sharpe_for_vn30f(y_pred_valid, y_valid, trade_threshold=trade_threshold, fee_perc=0.01, periods=10)
-        pnl_valid_no_nan = np.nan_to_num(pnl_valid, nan=0)
-        top_pnl.append(pnl_valid_no_nan)
-        # pnl = pd.DataFrame(top_pnl)
-        # pnl = pnl.transpose()
+
+        stats= run_model_backtest( temp,best_selected_features,model)
+        pnl_valid=stats['_equity_curve']['Equity'].values
+        
+        
+        top_pnl.append(pnl_valid)
     return top_pnl
 
 def retrieve_top_pnl_rf(data, top_features_list, drop_list):
     top_pnl = []
+
+
     for best_selected_features in top_features_list:
 
-        new_df_selected = data[drop_list+best_selected_features]
+        new_df_selected = data[[ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0']+best_selected_features]
         train_select_col_data, _ = split_data(new_df_selected)
 
-        retrain_data = train_select_col_data.drop(drop_list, axis=1)
+        retrain_data = train_select_col_data.drop([ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0'], axis=1)
+
+    #     retrain_data = scale_data(retrain_data)
 
         X_train, X_valid, y_train, y_valid = train_test_split(retrain_data,
                                                         train_select_col_data['Return'],
                                                         test_size=0.5,shuffle=False)
+        _, X_valid_data, _, _ = train_test_split(train_select_col_data,
+                                                        train_select_col_data['Return'],
+                                                        test_size=0.5,shuffle=False)
         X_train=scale_data(X_train,X_train)
         X_valid=scale_data(X_valid,X_train)
+        temp= X_valid.copy()
+        temp= pd.concat([X_valid_data[[ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0']], temp], axis=1)
+        temp.set_index('Unnamed: 0', inplace=True)
+        
+        temp.index.name = 'datetime'
+        temp.index = pd.to_datetime(temp.index)
         # Create and train model
         model = RandomForestRegressor()
         model.fit(X_train, y_train)
-        trade_threshold = 0
+
         # Make predictions
-        y_pred_valid = model.predict(X_valid)
-        _, pnl_valid, _, _ = sharpe_for_vn30f(y_pred_valid, y_valid, trade_threshold=trade_threshold, fee_perc=0.01, periods=10)
-        pnl_valid_no_nan = np.nan_to_num(pnl_valid, nan=0)
-        top_pnl.append(pnl_valid_no_nan)
-        # pnl = pd.DataFrame(top_pnl)
-        # pnl = pnl.transpose()
+        stats= run_model_backtest( temp,best_selected_features,model)
+        pnl_valid=stats['_equity_curve']['Equity'].values
+        
+        
+        top_pnl.append(pnl_valid)
     return top_pnl
 
-def retrieve_top_pnl_cnn(data, top_features_list, drop_list):
+
     top_pnl = []
     for best_selected_features in top_features_list:
 
@@ -701,76 +743,160 @@ def retrieve_top_pnl_cnn(data, top_features_list, drop_list):
 
 def retrieve_top_pnl_lstm(data, top_features_list, drop_list):
     top_pnl = []
+
     for best_selected_features in top_features_list:
 
-        new_df_selected = data[drop_list+best_selected_features]
+
+
+        new_df_selected = data[[ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0']+best_selected_features]
+
         train_select_col_data, _ = split_data(new_df_selected)
 
-        retrain_data = train_select_col_data.drop(drop_list, axis=1)
+
+
+        retrain_data = train_select_col_data.drop([ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0'], axis=1)
+
+
+
+    #     retrain_data = scale_data(retrain_data)
+
+
 
         X_train, X_valid, y_train, y_valid = train_test_split(retrain_data,
                                                         train_select_col_data['Return'],
                                                         test_size=0.5,shuffle=False)
+        _, X_valid_data, _, _ = train_test_split(train_select_col_data,
+                                                        train_select_col_data['Return'],
+                                                        test_size=0.5,shuffle=False)
         X_train=scale_data(X_train,X_train)
         X_valid=scale_data(X_valid,X_train)
+        temp= X_valid.copy()
+        temp= pd.concat([X_valid_data[[ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0']], temp], axis=1)
+        temp.set_index('Unnamed: 0', inplace=True)
+        
+        temp.index.name = 'datetime'
+        temp.index = pd.to_datetime(temp.index)
+
         # Create and train model
+
+        # model = RandomForestRegressor()
+
+        # model.fit(X_train, y_train)
+
         model = Sequential()
+
         model.add(LSTM(units = 50, activation = 'relu', return_sequences=True
+
                     ,input_shape = (X_train.shape[1], 1)))
+
         model.add(Dropout(0.1))
+
         model.add(LSTM(units=50))
+
+
+
         model.add(Dense(1))  # Assuming this output is suitable for the prediction targets
+
         model.compile(loss='mean_squared_error', optimizer='adam', metrics=['mean_absolute_error'])
+
         model.fit(X_train, y_train, epochs=5, batch_size=32, validation_data=(X_valid, y_valid), verbose=0)
-        trade_threshold = 0
+
+
         # Make predictions
-        y_pred_valid = model.predict(X_valid)
-        _, pnl_valid, _, _ = sharpe_for_vn30f(y_pred_valid, y_valid, trade_threshold=trade_threshold, fee_perc=0.01, periods=10)
-        pnl_valid_no_nan = np.nan_to_num(pnl_valid, nan=0)
-        top_pnl.append(pnl_valid_no_nan)
-        # pnl = pd.DataFrame(top_pnl)
-        # pnl = pnl.transpose()
+
+        stats= run_model_backtest_dl( temp,best_selected_features,model)
+        pnl_valid=stats['_equity_curve']['Equity'].values
+        
+        
+        top_pnl.append(pnl_valid)
     return top_pnl
 
 def retrieve_top_pnl_cnn_lstm(data, top_features_list, drop_list):
     top_pnl = []
+
+
+
+
+
     for best_selected_features in top_features_list:
 
-        new_df_selected = data[drop_list+best_selected_features]
+
+
+        new_df_selected = data[[ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0']+best_selected_features]
+
         train_select_col_data, _ = split_data(new_df_selected)
 
-        retrain_data = train_select_col_data.drop(drop_list, axis=1)
 
+
+        retrain_data = train_select_col_data.drop([ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0'], axis=1)
+
+
+
+    #     retrain_data = scale_data(retrain_data)
         X_train, X_valid, y_train, y_valid = train_test_split(retrain_data,
+                                                        train_select_col_data['Return'],
+                                                        test_size=0.5,shuffle=False)
+        _, X_valid_data, _, _ = train_test_split(train_select_col_data,
                                                         train_select_col_data['Return'],
                                                         test_size=0.5,shuffle=False)
         X_train=scale_data(X_train,X_train)
         X_valid=scale_data(X_valid,X_train)
-        input_shape = (X_train.shape[1], 1)
+        temp= X_valid.copy()
+        temp= pd.concat([X_valid_data[[ 'Open','High','Low','Close','Volume', 'Return','Unnamed: 0']], temp], axis=1)
+        temp.set_index('Unnamed: 0', inplace=True)
+        
+        temp.index.name = 'datetime'
+        temp.index = pd.to_datetime(temp.index)
+
         # Create and train model
+
+        # model = RandomForestRegressor()
+
+        # model.fit(X_train, y_train)
+
+        input_shape = (X_train.shape[1], 1)
+
+
+
+        # Create a Sequential model
+
         model = Sequential()
+
         #add model layers
+
         model.add(Conv1D(64, kernel_size=1, activation='relu', input_shape=input_shape))
+
         model.add(MaxPooling1D(1))
+
         model.add(Conv1D(128, kernel_size=1, activation='relu'))
+
         model.add(MaxPooling1D(2))
+
         model.add(Conv1D(filters=256, kernel_size=3, activation='relu'))
+
         # model.add(Flatten())
+
         model.add(LSTM(50,return_sequences=True))
+
         model.add(Dropout(0.1))
+
         model.add(LSTM(50,return_sequences=False))
+
         model.add(Dropout(0.1))
+
         model.add(Dense(1))
+
         model.compile(optimizer='RMSprop', loss='mse')
+
         model.fit( X_train , y_train, epochs=10, batch_size=32, validation_data=(X_valid, y_valid), verbose=0)
-        trade_threshold = 0
+
         # Make predictions
-        y_pred_valid = model.predict(X_valid)
-        _, pnl_valid, _, _ = sharpe_for_vn30f(y_pred_valid, y_valid, trade_threshold=trade_threshold, fee_perc=0.01, periods=10)
-        pnl_valid_no_nan = np.nan_to_num(pnl_valid, nan=0)
-        top_pnl.append(pnl_valid_no_nan)
-        # pnl = pd.DataFrame(top_pnl)
-        # pnl = pnl.transpose()
+
+        stats= run_model_backtest_dl( temp,best_selected_features,model)
+        pnl_valid=stats['_equity_curve']['Equity'].values
+        
+        
+        top_pnl.append(pnl_valid)
     return top_pnl
 
 def get_indicator_columns(df, drop_list):
@@ -1010,10 +1136,10 @@ def objective_params_xgb(trial, X_train, X_valid, y_train, y_valid, y_close, tra
     # Save trade value in the trial object for later access
     trial.set_user_attr('trade', trade)
     try:
-        gs= (abs((abs(sharpe / sharpe1))-1))
+        gs= abs((sharpe1/ sharpe)-1)
     except:
         gs=0
-    return ret,volatility,gs
+    return ret1,volatility1,gs
 
 def objective_params_lgbm(trial, X_train, X_valid, y_train, y_valid, y_close, train_data_X_train, train_data_X_valid):
     # Define the hyperparameter search space
@@ -1061,10 +1187,10 @@ def objective_params_lgbm(trial, X_train, X_valid, y_train, y_valid, y_close, tr
     # Save trade value in the trial object for later access
     trial.set_user_attr('trade', trade)
     try:
-        gs= (abs((abs(sharpe / sharpe1))-1))
+        gs= abs((sharpe1/ sharpe)-1)
     except:
         gs=0
-    return ret,volatility,gs
+    return ret1,volatility1,gs
 
 
 def objective_params_rf(trial, X_train, X_valid, y_train, y_valid, y_close, train_data_X_train, train_data_X_valid):
@@ -1105,10 +1231,10 @@ def objective_params_rf(trial, X_train, X_valid, y_train, y_valid, y_close, trai
     # Save trade value in the trial object for later access
     trial.set_user_attr('trade', trade)
     try:
-        gs= (abs((abs(sharpe / sharpe1))-1))
+        gs= abs((sharpe1/ sharpe)-1)
     except:
         gs=0
-    return ret,volatility,gs
+    return ret1,volatility1,gs
 
 
 def objective_params_lstm(trial, X_train, X_valid, y_train, y_valid, y_close, train_data_X_train, train_data_X_valid):
@@ -1162,10 +1288,10 @@ def objective_params_lstm(trial, X_train, X_valid, y_train, y_valid, y_close, tr
     # Save trade value in the trial object for later access
     trial.set_user_attr('trade', trade)
     try:
-        gs= (abs((abs(sharpe / sharpe1))-1))
+        gs= abs((sharpe1/ sharpe)-1)
     except:
         gs=0
-    return ret,volatility,gs
+    return ret1,volatility1,gs
 
 def objective_params_cnn(trial, X_train, X_valid, y_train, y_valid, y_close, train_data_X_train, train_data_X_valid):
     # Define the hyperparameter search space
@@ -1224,10 +1350,10 @@ def objective_params_cnn(trial, X_train, X_valid, y_train, y_valid, y_close, tra
     # Save trade value in the trial object for later access
     trial.set_user_attr('trade', trade)
     try:
-        gs= (abs((abs(sharpe / sharpe1))-1))
+        gs= abs((sharpe1/ sharpe)-1)
     except:
         gs=0
-    return ret,volatility,gs
+    return ret1,volatility1,gs
 
 def objective_params_cnn_lstm(trial, X_train, X_valid, y_train, y_valid, y_close, train_data_X_train, train_data_X_valid):
     # Define the hyperparameter search space
@@ -1288,10 +1414,10 @@ def objective_params_cnn_lstm(trial, X_train, X_valid, y_train, y_valid, y_close
     # Save trade value in the trial object for later access
     trial.set_user_attr('trade', trade)
     try:
-        gs= (abs((abs(sharpe / sharpe1))-1))
+        gs= abs((sharpe1/ sharpe)-1)
     except:
         gs=0
-    return ret,volatility,gs
+    return ret1,volatility1,gs
 
 
 def sort_select_cluster(selected_columns_cluster, selected_columns_cluster_with_info, drop_list):

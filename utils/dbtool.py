@@ -33,26 +33,24 @@ def read_feat_from_postgresql_limit(table_name, user, password, host, port, dbna
 
     df = df.iloc[::-1].reset_index(drop=True)
     return df
-
-def read_feat_from_postgresql_date_time(table_name, user, password, host, port, dbname, schema, date_filter,time_filter):
-    engine = create_engine(f'postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}')
-    
-    query = f"""
-    SELECT * FROM {schema}.{table_name}
-    WHERE "Date" >= '{date_filter}'AND 'time'>='{time_filter}'
-
-    """
-   
-    df = pd.read_sql_query(query, engine)
-    
-    return df
-
 def read_feat_from_postgresql_date(table_name, user, password, host, port, dbname, schema, date_filter):
     engine = create_engine(f'postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}')
     
     query = f"""
     SELECT * FROM {schema}.{table_name}
     WHERE "Date" > '{date_filter}'
+
+    """
+   
+    df = pd.read_sql_query(query, engine)
+    
+    return df
+def read_feat_from_postgresql_date_time(table_name, user, password, host, port, dbname, schema, date_filter,time_filter):
+    engine = create_engine(f'postgresql+psycopg2://{user}:{password}@{host}:{port}/{dbname}')
+    
+    query = f"""
+    SELECT * FROM {schema}.{table_name}
+    WHERE "Date" >= '{date_filter}'AND 'time'>='{time_filter}'
 
     """
    

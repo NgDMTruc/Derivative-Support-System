@@ -1,17 +1,7 @@
+from backtesting import Backtest, Strategy
 import numpy as np
 import pandas as pd
-from backtesting import Backtest, Strategy
-from scipy.stats import gmean
 
-def choose_position(roi, trade_threshold=0):
-    # Hàm đơn giản để xác định tín hiệu mua/bán
-    if roi > trade_threshold:
-        return 1  # Tín hiệu mua
-    elif roi < -trade_threshold:
-        return -1  # Tín hiệu bán
-    else:
-        return 0  # Không mở vị thế
-        
 class ModelBasedStrategy(Strategy):
     trade_threshold = 0
     feat = []  # Khai báo biến lớp feat
@@ -100,18 +90,42 @@ class ModelBasedStrategy(Strategy):
         # Xác định tín hiệu mua/bán dựa trên ngưỡng dự đoán
         return [choose_position(roi, self.trade_threshold) for roi in predictions]
 
+    # def check_reversal(self, future_positions, current_pos):
+    #     """
+    #     Kiểm tra tín hiệu đảo chiều: 
+    #     - Đảm bảo tín hiệu thay đổi trong 2 bước liên tiếp mới đảo chiều.
+    #     """
+    #     # Nếu hiện tại đang mua mà có tín hiệu bán trong 2 bước tiếp theo (hoặc ngược lại)
+    #     if current_pos == 1 and -1 in future_positions[:2]:  # Kiểm tra 2 bước tiếp theo
+    #         return True
+    #     elif current_pos == -1 and 1 in future_positions[:2]:  # Kiểm tra 2 bước tiếp theo
+    #         return True
+    #     return False
     def check_reversal(self, future_positions, current_pos):
         """
-        Kiểm tra tín hiệu đảo chiều:
-        - Đảm bảo tín hiệu thay đổi trong 2 bước liên tiếp mới đảo chiều.
+        Kiểm tra tín hiệu đảo chiều: 
+        - Đảm bảo tín hiệu thay đổi trong 2 bước tiếp theo mới đảo chiều.
         """
-        # Nếu hiện tại đang mua mà có tín hiệu bán trong 2 bước tiếp theo (hoặc ngược lại)
-        if current_pos == 1 and -1 in future_positions[:2]:  # Kiểm tra 2 bước tiếp theo
+        # Nếu hiện tại đang mua mà cả 2 bước tiếp theo đều có tín hiệu bán (hoặc ngược lại)
+        if current_pos == 1 and all(pos == -1 for pos in future_positions[:2]):  # Kiểm tra cả 2 bước tiếp theo
             return True
-        elif current_pos == -1 and 1 in future_positions[:2]:  # Kiểm tra 2 bước tiếp theo
+        elif current_pos == -1 and all(pos == 1 for pos in future_positions[:2]):  # Kiểm tra cả 2 bước tiếp theo
             return True
         return False
-    
+
+def choose_position(roi, trade_threshold=0):
+    # Hàm đơn giản để xác định tín hiệu mua/bán
+    if roi > trade_threshold:
+        return 1  # Tín hiệu mua
+    elif roi < -trade_threshold:
+        return -1  # Tín hiệu bán
+    else:
+        return 0  # Không mở vị thế
+from scipy.stats import gmean
+import numpy as np
+import pandas as pd
+from backtesting import Backtest
+
 class CustomBacktest(Backtest):
     def __init__(self, *args, cash=1000, margin=0.13, **kwargs):
         super().__init__(*args, cash=cash, margin=margin, **kwargs)
@@ -126,19 +140,19 @@ class CustomBacktest(Backtest):
         personal_income_tax = (exit_price * 100000 * self.margin) * 0.1 / 100 / 2 * size
         total_fee = (platform_fee + exchange_fee + overnight_fee + personal_income_tax) / 100000
         return total_fee
-
+    
     def geometric_mean(self, returns: pd.Series) -> float:
         returns = returns.fillna(0) + 1
         if np.any(returns <= 0):
             return 0
         return np.exp(np.log(returns).sum() / (len(returns) or np.nan)) - 1
-
+    
     def run(self, **strategy_args):
         stats = super().run(**strategy_args)
         fees_for_trades = []
         margin_required_list = []
         current_equity_list = []
-
+        
         current_equity = self._initial_cash
 
         for idx, trade in stats._trades.iterrows():
@@ -170,6 +184,7 @@ class CustomBacktest(Backtest):
             stats._trades.at[idx, 'PnL_after_fees'] = pnl_after_fees
 
         # Thêm cột 'Fees', 'Margin Required', và 'Current Equity' vào _trades và tổng phí đã áp dụng
+        # stats._trades['Fees'] = fees_for_trades
         if len(fees_for_trades) < len(stats._trades.index):
             # Extend fees_for_trades with zeros
             fees_for_trades += [0] * (len(stats._trades.index) - len(fees_for_trades))
@@ -187,6 +202,7 @@ class CustomBacktest(Backtest):
             current_equity_list += [current_equity] * (len(stats._trades.index) - len(current_equity_list))
         elif len(current_equity_list) > len(stats._trades.index):
             current_equity_list = current_equity_list[:len(stats._trades.index)]
+        # stats._trades['Fees'] = fees_for_trades[:len(stats._trades.index)]
         stats._trades['Fees'] = fees_for_trades
         stats._trades['Margin Required'] = margin_required_list
         stats._trades['Current Equity'] = current_equity_list
@@ -201,7 +217,7 @@ class CustomBacktest(Backtest):
         equity_df = stats._equity_curve
         index = equity_df.index
         day_returns = equity_df['Equity'].resample('D').last().dropna().pct_change().dropna()
-
+        
         if len(day_returns) > 0:
             gmean_day_return = self.geometric_mean(day_returns)
             annual_trading_days = 365 if index.dayofweek.to_series().between(5, 6).mean() > 2/7 * .6 else 252
@@ -222,7 +238,7 @@ class CustomBacktest(Backtest):
         equity_df = stats._equity_curve
         index = equity_df.index
         day_returns = equity_df['Equity'].resample('D').last().dropna().pct_change().dropna()
-
+        
         if len(day_returns) > 0:
             gmean_day_return = gmean(1 + day_returns) - 1
             annual_trading_days = 365 if index.dayofweek.to_series().between(5, 6).mean() > 2/7 * .6 else 252
@@ -255,7 +271,7 @@ class CustomBacktest(Backtest):
 
         # Win Rate
         stats['Win Rate [%]'] = (stats._trades['PnL_after_fees'] > 0).mean() * 100 if not stats._trades.empty else 0
-        # Các chỉ số giao dịch khác
+# Các chỉ số giao dịch khác
         stats['Best Trade [%]'] = stats._trades['ReturnPct'].max() * 100 if not stats._trades.empty else 0
         stats['Worst Trade [%]'] = stats._trades['ReturnPct'].min() * 100 if not stats._trades.empty else 0
         stats['Avg. Trade [%]'] = stats._trades['ReturnPct'].mean() * 100 if not stats._trades.empty else 0
@@ -271,10 +287,8 @@ class CustomBacktest(Backtest):
             stats['SQN'] = np.sqrt(len(stats._trades)) * stats._trades['PnL_after_fees'].mean() / stats._trades['PnL_after_fees'].std()
         except:
             stats['SQN'] = 0
-
+# Chạy backtest với CustomBacktest
 def run_model_backtest(df, selected_features, model):
-    # Chạy backtest với CustomBacktest
     bt = CustomBacktest(df, ModelBasedStrategy, cash=1000, commission=0, margin=0.13, hedging=True, exclusive_orders=False)
     stats = bt.run(feat=selected_features, model=model)
     return stats
-
