@@ -5,7 +5,7 @@ import pandas as pd
 input_file = "Data-finetune - eval.csv"  # Đổi tên file theo đúng file CSV của bạn
 data = pd.read_csv(input_file)
 # Hàm để đánh giá thông tin bằng GPT
-api_key = "sk-None-iOoyUPtcZK3npXWePKwaT3BlbkFJQrxLETpaB510hxCGTHWS" # "sk-None-0qLRg02ilC3Bg4I8Y2wpT3BlbkFJuqzBPXjDe3q3hVygANGG"
+api_key = "" #
 openai.api_key = api_key
 # Hàm gọi API GPT để tạo câu hỏi
 def generate_questions(content):
